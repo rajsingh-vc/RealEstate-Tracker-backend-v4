@@ -134,6 +134,7 @@ class TaskSerializer(serializers.ModelSerializer):
             "checklist_template_id",
             "organization_id", "organization_name", "company_id", "company_name",
             "entity_id", "entity_name",
+            "created_at", "updated_at",
         ]
         # assigned_hod, assigned_users, dependencies, is_repetitive,
         # repeat_frequency, is_self_task, start_date, end_date,

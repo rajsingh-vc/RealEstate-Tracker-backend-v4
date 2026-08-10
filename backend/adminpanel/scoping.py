@@ -24,12 +24,27 @@ from django.db.models import QuerySet
 
 
 def user_organization_ids(user) -> list[int]:
-    """Resolve the set of organization IDs a (non-superadmin) user can access."""
+    """Resolve the set of organization IDs a (non-superadmin) user can access.
+
+    ✅ FIXED: accounts.User has no `organizations` M2M and no `organization`
+    FK — its actual tenant link is `User.company` (a FK to accounts.Company,
+    which is what this whole codebase calls "Organization" everywhere else;
+    see the aliasing note at the top of projects/models.py). The previous
+    version of this function only ever checked for `user.organizations` and
+    `user.organization_id`, neither of which exists on User, so it fell
+    through to `return []` for every non-superadmin user — silently
+    emptying out every org-scoped queryset (Projects, Tasks, Documents,
+    Checklists, Compliance, Handover, Hurdles, Resources, Society,
+    CategoryManagement) regardless of what access they'd actually been
+    granted. Checking `company_id` first (the field that really exists)
+    fixes that, while still supporting an `organizations` M2M or an
+    `organization_id` FK if either gets added to User later.
+    """
     if hasattr(user, "organizations"):
         # M2M: users who can operate across multiple organizations.
         return list(user.organizations.values_list("id", flat=True))
 
-    org_id = getattr(user, "organization_id", None)
+    org_id = getattr(user, "company_id", None) or getattr(user, "organization_id", None)
     if org_id:
         # Single-tenant user: one FK to their organization.
         return [org_id]

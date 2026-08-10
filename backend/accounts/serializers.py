@@ -105,20 +105,36 @@ class UserSerializer(serializers.ModelSerializer):
     role = serializers.CharField(source='role.name', read_only=True, default='')
     department = serializers.CharField(source='department.name', read_only=True, default='')
     activity_status = serializers.SerializerMethodField()
+    # ✅ FIXED — the frontend's AdminRoute guard (App.tsx / AuthContext.tsx)
+    # gates access to /admin on `user.can_manage_users`, but this serializer
+    # never sent that field, so it was always `undefined` in the browser.
+    # SuperAdmins still reached /admin because `is_superuser` alone let them
+    # through; a plain Admin whose access comes from their Role's
+    # `can_manage_users` permission (see accounts.constants.Perms) had no
+    # way to pass the check and was silently redirected to "/" (Dashboard)
+    # every time they clicked Admin. Reuses the existing
+    # User.has_perm_codename() helper — same permission check `permissions.py`
+    # already enforces server-side — so this is just exposing it to the client.
+    can_manage_users = serializers.SerializerMethodField()
 
     class Meta:
         model = User
         fields = [
             'id', 'username', 'email', 'name', 'phone_number', 'role',
             'department', 'company', 'company_name', 'is_active',
-            'is_superuser', 'last_login', 'activity_status',
+            'is_superuser', 'last_login', 'activity_status', 'can_manage_users',
         ]
         read_only_fields = [
             'last_login', 'is_superuser', 'company_name', 'activity_status',
+            'can_manage_users',
         ]
 
     def get_activity_status(self, obj):
         return "Active" if obj.is_active else "Inactive"
+
+    def get_can_manage_users(self, obj):
+        from .constants import Perms
+        return obj.has_perm_codename(Perms.MANAGE_USERS)
 
 
 class UserCreateSerializer(serializers.ModelSerializer):

@@ -89,6 +89,7 @@ class ProjectSerializer(serializers.ModelSerializer):
             "organization_id", "company_id", "entity_id",
             "organization_name", "company_name", "entity_name",
             "hierarchy_mode",  # ✅ NEW — camelCase renderer outputs this as hierarchyMode
+            "created_at", "updated_at",  # ✅ NEW — renders as createdAt / updatedAt
         ]
 
     def validate(self, attrs):
