@@ -33,9 +33,6 @@ class Company(models.Model):
     )
 
     def save(self, *args, **kwargs):
-        # subdomain is a tenant-routing detail the frontend never sends —
-        # auto-derive it from the name so the field can stay unique/non-null
-        # without forcing the client to supply it.
         if not self.subdomain:
             base = slugify(self.name)[:90] or "org"
             candidate, i = base, 1
@@ -154,6 +151,12 @@ class Department(models.Model):
 
 class User(AbstractUser):
     name = models.CharField(max_length=255, default='')
+    # NOTE: overrides AbstractUser's default email field (which allows
+    # duplicates) so that a personal email can never resolve to more than
+    # one account. This is what the forgot-password lookup relies on to
+    # find the right user, so it must be globally unique — not scoped to
+    # `company`, since SuperAdmin has company=None.
+    email = models.EmailField(unique=True, blank=True)
     phone_number = models.CharField(max_length=20, blank=True, default='')
     company = models.ForeignKey(
         Company,
@@ -188,6 +191,45 @@ class User(AbstractUser):
 
     def __str__(self):
         return f"{self.username} ({self.role.name if self.role else 'No Role'})"
+
+
+class PasswordResetOTP(models.Model):
+    """
+    One-time password used to drive the "Forgot password" flow:
+      1. POST /auth/forgot-password/  -> creates a row here, emails `otp_code`.
+      2. POST /auth/verify-otp/       -> marks `is_verified` once the code
+         the user typed matches and hasn't expired/been used.
+      3. POST /auth/reset-password/   -> re-checks the same row is verified
+         and unused, sets the new password, then marks `is_used`.
+
+    Rows aren't deleted after use — they're just marked used/expired — so
+    there's a natural audit trail of reset attempts per user.
+    """
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='password_reset_otps'
+    )
+    otp_code = models.CharField(max_length=6)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    is_verified = models.BooleanField(default=False)
+    is_used = models.BooleanField(default=False)
+
+    def save(self, *args, **kwargs):
+        if not self.expires_at:
+            minutes = getattr(settings, "PASSWORD_RESET_OTP_EXPIRY_MINUTES", 10)
+            self.expires_at = timezone.now() + timedelta(minutes=minutes)
+        super().save(*args, **kwargs)
+
+    @property
+    def is_expired(self):
+        return timezone.now() > self.expires_at
+
+    @staticmethod
+    def generate_code():
+        return f"{secrets.randbelow(1_000_000):06d}"
+
+    def __str__(self):
+        return f"OTP for {self.user.username} ({'used' if self.is_used else 'active'})"
 
 
 class Invitation(models.Model):

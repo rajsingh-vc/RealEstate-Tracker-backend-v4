@@ -67,11 +67,25 @@ class TaskViewSet(viewsets.ModelViewSet):
 
         serializer.save()
 
-    @action(detail=True, methods=['post'], url_path='comments')
-    def add_comment(self, request, pk=None):
-        """POST /api/tasks/{id}/comments/ — adds a comment authored by the
-        logged-in user. Matches tasksApi.addComment in lib/api.ts."""
+    @action(detail=True, methods=['get', 'post'], url_path='comments')
+    def comments(self, request, pk=None):
+        """GET /api/tasks/{id}/comments/  — list comments, oldest first.
+        POST /api/tasks/{id}/comments/ — adds a comment authored by the
+        logged-in user. Matches tasksApi.getComments / .addComment in
+        lib/api.ts.
+
+        NOTE: previously this action only accepted POST, so the frontend's
+        GET (used to populate the ["task", id, "comments"] query) hit a 405
+        every time and fell back to task.comments from the list endpoint
+        (which is always empty) — that's why comments appeared to
+        "disappear" after being posted.
+        """
         task = self.get_object()
+
+        if request.method == 'GET':
+            comments = task.comments.select_related('author').all()
+            return Response(TaskCommentSerializer(comments, many=True).data)
+
         text = (request.data.get('text') or '').strip()
         if not text:
             raise ValidationError({"text": "This field is required."})

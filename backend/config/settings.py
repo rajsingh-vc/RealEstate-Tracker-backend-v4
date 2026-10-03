@@ -71,6 +71,7 @@ INSTALLED_APPS = [
     "adminpanel",
     "analytics",
     "core",
+    "notifications",
 ]
 
 MIDDLEWARE = [
@@ -82,6 +83,7 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    "notifications.middleware.ActivityNotificationMiddleware",
 ]
 
 ROOT_URLCONF = "config.urls"

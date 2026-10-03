@@ -65,10 +65,12 @@ class ProjectSerializer(serializers.ModelSerializer):
     towers = TowerSerializer(many=True, read_only=True)
 
     organization_id = serializers.PrimaryKeyRelatedField(
-        source="organization", queryset=Organization.objects.all()
+        source="organization", queryset=Organization.objects.all(),
+        required=False, allow_null=True
     )
     company_id = serializers.PrimaryKeyRelatedField(
-        source="company", queryset=Company.objects.all()
+        source="company", queryset=Company.objects.all(),
+        required=False, allow_null=True
     )
     entity_id = serializers.PrimaryKeyRelatedField(
         source="entity", queryset=Entity.objects.all(), required=False, allow_null=True
@@ -106,6 +108,19 @@ class ProjectSerializer(serializers.ModelSerializer):
                 {"entity_id": "Selected entity does not belong to the selected organization."}
             )
         return attrs
+
+    def create(self, validated_data):
+        # Quick-create flows (e.g. the Documents "create new project" shortcut)
+        # don't collect org/company explicitly — fall back to the requesting
+        # user's own org, since user.company_id IS the Organization FK
+        # (see adminpanel/scoping.py user_organization_ids()).
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if not validated_data.get("organization") and user is not None:
+            org_id = getattr(user, "company_id", None)
+            if org_id:
+                validated_data["organization"] = Organization.objects.filter(id=org_id).first()
+        return super().create(validated_data)
 
 
 class ProjectListSerializer(ProjectSerializer):

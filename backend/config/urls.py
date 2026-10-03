@@ -18,6 +18,7 @@ urlpatterns = [
     path("api/", include("adminpanel.urls")),
     path("api/", include("analytics.urls")),
     path("api/", include("categorymanagement.urls")),
+    path("api/", include("notifications.urls")),
 ]
 
 if settings.DEBUG:

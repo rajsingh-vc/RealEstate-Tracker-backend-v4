@@ -1,5 +1,9 @@
+from django.conf import settings
 from django.contrib.auth import authenticate
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import models
+from django.utils import timezone
 from rest_framework import serializers
 
 from .models import (
@@ -9,10 +13,10 @@ from .models import (
     EscalationRule,
     Invitation,
     OrganizationCompany,
+    PasswordResetOTP,
     Role,
     User,
 )
-
 
 class CompanySerializer(serializers.ModelSerializer):
     """
@@ -178,6 +182,87 @@ class UserCreateSerializer(serializers.ModelSerializer):
             validated_data['department'] = dept
 
         return User.objects.create_user(**validated_data)
+
+
+class ForgotPasswordSerializer(serializers.Serializer):
+    """
+    Step 1 of the reset flow. Always resolves to a generic success response
+    from the view regardless of whether the email matches an account, so
+    this endpoint can't be used to enumerate registered emails. Validation
+    here just resolves (or fails to resolve) the target user onto
+    `validated_data['user']` — the view decides what to tell the caller.
+    """
+    email = serializers.EmailField()
+
+    def validate(self, attrs):
+        attrs["user"] = User.objects.filter(email__iexact=attrs["email"], is_active=True).first()
+        return attrs
+
+
+class VerifyOTPSerializer(serializers.Serializer):
+    """Step 2: confirms the code the user typed matches a live, unused OTP."""
+    email = serializers.EmailField()
+    otp = serializers.CharField(max_length=6, min_length=6)
+
+    def validate(self, attrs):
+        user = User.objects.filter(email__iexact=attrs["email"], is_active=True).first()
+        if not user:
+            raise serializers.ValidationError({"otp": "Invalid or expired code."})
+
+        record = (
+            PasswordResetOTP.objects.filter(user=user, otp_code=attrs["otp"], is_used=False)
+            .order_by("-created_at")
+            .first()
+        )
+        if not record:
+            raise serializers.ValidationError({"otp": "Invalid or expired code."})
+        if record.is_expired:
+            raise serializers.ValidationError({"otp": "This code has expired. Please request a new one."})
+
+        attrs["user"] = user
+        attrs["record"] = record
+        return attrs
+
+
+class ResetPasswordSerializer(serializers.Serializer):
+    """
+    Step 3: re-validates the same OTP (it must already have been confirmed
+    via VerifyOTPSerializer) and sets the new password. The OTP is consumed
+    (`is_used=True`) on success so it can't be replayed.
+    """
+    email = serializers.EmailField()
+    otp = serializers.CharField(max_length=6, min_length=6)
+    new_password = serializers.CharField(write_only=True)
+    confirm_password = serializers.CharField(write_only=True)
+
+    def validate(self, attrs):
+        if attrs["new_password"] != attrs["confirm_password"]:
+            raise serializers.ValidationError({"confirm_password": "Passwords do not match."})
+
+        user = User.objects.filter(email__iexact=attrs["email"], is_active=True).first()
+        if not user:
+            raise serializers.ValidationError({"otp": "Invalid or expired code."})
+
+        record = (
+            PasswordResetOTP.objects.filter(user=user, otp_code=attrs["otp"], is_used=False)
+            .order_by("-created_at")
+            .first()
+        )
+        if not record:
+            raise serializers.ValidationError({"otp": "Invalid or expired code."})
+        if record.is_expired:
+            raise serializers.ValidationError({"otp": "This code has expired. Please request a new one."})
+        if not record.is_verified:
+            raise serializers.ValidationError({"otp": "Please verify the code before setting a new password."})
+
+        try:
+            validate_password(attrs["new_password"], user=user)
+        except DjangoValidationError as e:
+            raise serializers.ValidationError({"new_password": list(e.messages)})
+
+        attrs["user"] = user
+        attrs["record"] = record
+        return attrs
 
 
 class UserUpdateSerializer(serializers.ModelSerializer):

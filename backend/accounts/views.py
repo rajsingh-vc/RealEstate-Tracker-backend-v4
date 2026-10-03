@@ -12,8 +12,12 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from .models import Company, Department, Entity, EscalationRule, Invitation, OrganizationCompany, Role, User
-from .notifications import send_invitation_email, send_invitation_sms
+from .models import (
+    Company, Department, Entity, EscalationRule, Invitation, OrganizationCompany,
+    PasswordResetOTP, Role, User,
+)
+from .notifications import send_invitation_email, send_invitation_sms, send_password_reset_otp_email
+from notifications.utils import notify, notify_superadmins
 from .permissions import (
     CanManageDepartments,
     CanManageInvitations,
@@ -27,14 +31,17 @@ from .serializers import (
     DepartmentSerializer,
     EntitySerializer,
     EscalationRuleSerializer,
+    ForgotPasswordSerializer,
     InvitationSerializer,
     InvitationPreviewSerializer,
     LoginSerializer,
     OrganizationCompanySerializer,
+    ResetPasswordSerializer,
     RoleSerializer,
     UserCreateSerializer,
     UserSerializer,
     UserUpdateSerializer,
+    VerifyOTPSerializer,
 )
 
 
@@ -94,6 +101,65 @@ class CompanyViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user)
+
+class ForgotPasswordView(APIView):
+    """
+    POST /auth/forgot-password/  {email}
+
+    Public. Always returns 200 with a generic message — whether or not the
+    email matches an account — so this endpoint can't be used to enumerate
+    registered users. If it does match an active user, an OTP is created
+    and emailed to that user's own address.
+    """
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        serializer = ForgotPasswordSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = serializer.validated_data["user"]
+
+        if user:
+            expiry_minutes = getattr(settings, "PASSWORD_RESET_OTP_EXPIRY_MINUTES", 10)
+            record = PasswordResetOTP.objects.create(
+                user=user,
+                otp_code=PasswordResetOTP.generate_code(),
+                expires_at=timezone.now() + timedelta(minutes=expiry_minutes),
+            )
+            send_password_reset_otp_email(user, record.otp_code, expiry_minutes)
+
+        return Response({"detail": "If an account exists for that email, a verification code has been sent."})
+
+
+class VerifyOTPView(APIView):
+    """POST /auth/verify-otp/  {email, otp} — confirms the code before the reset-password step unlocks."""
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        serializer = VerifyOTPSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        record = serializer.validated_data["record"]
+        record.is_verified = True
+        record.save(update_fields=["is_verified"])
+        return Response({"detail": "Code verified. You can now set a new password."})
+
+
+class ResetPasswordView(APIView):
+    """POST /auth/reset-password/  {email, otp, new_password, confirm_password}"""
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        serializer = ResetPasswordSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = serializer.validated_data["user"]
+        record = serializer.validated_data["record"]
+
+        user.set_password(serializer.validated_data["new_password"])
+        user.save(update_fields=["password"])
+
+        record.is_used = True
+        record.save(update_fields=["is_used"])
+
+        return Response({"detail": "Your password has been reset. You can now log in."})
 
 
 class OrganizationCompanyViewSet(viewsets.ModelViewSet):
@@ -347,7 +413,19 @@ class AcceptInvitationView(APIView):
     def post(self, request):
         serializer = AcceptInvitationSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        invitation = serializer.validated_data['invitation']
         user = serializer.save()
+
+        # Notify whoever sent the invite (if they're not a SuperAdmin
+        # themselves — they'll already get one below), plus every
+        # SuperAdmin, now that the invite has been accepted.
+        display_name = user.name or user.username
+        verb = "accepted their invitation"
+        description = f"{display_name} accepted the invitation to join {invitation.company.name} and is now a member."
+        if invitation.invited_by_id and not invitation.invited_by.is_superuser:
+            notify(invitation.invited_by, verb, actor=user, description=description)
+        notify_superadmins(verb, actor=user, description=description)
+
         return Response(
             {**_tokens_for(user), "user": UserSerializer(user, context={'request': request}).data},
             status=status.HTTP_201_CREATED,

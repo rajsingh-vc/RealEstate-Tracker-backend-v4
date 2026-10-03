@@ -3,6 +3,7 @@ from rest_framework.routers import DefaultRouter
 from rest_framework_simplejwt.views import TokenRefreshView
 from .views import (
     LoginView, LogoutView, MeView,
+    ForgotPasswordView, VerifyOTPView, ResetPasswordView,
     UserViewSet, CompanyViewSet, RoleViewSet, DepartmentViewSet,
     OrganizationCompanyViewSet, EntityViewSet, EscalationRuleViewSet,
     InvitationViewSet, AcceptInvitationView, InvitationPreviewView,
@@ -25,6 +26,9 @@ urlpatterns = [
     path("auth/logout/", LogoutView.as_view(), name="logout"),
     path("auth/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
     path("auth/me/", MeView.as_view(), name="me"),
+    path("auth/forgot-password/", ForgotPasswordView.as_view(), name="forgot-password"),
+    path("auth/verify-otp/", VerifyOTPView.as_view(), name="verify-otp"),
+    path("auth/reset-password/", ResetPasswordView.as_view(), name="reset-password"),
     path("auth/invitations/<str:token>/", InvitationPreviewView.as_view(), name="invitation-preview"),
     path("auth/accept-invite/", AcceptInvitationView.as_view(), name="accept-invite"),
     path("", include(router.urls)),

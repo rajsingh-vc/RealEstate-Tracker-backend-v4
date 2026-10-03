@@ -30,6 +30,26 @@ def send_invitation_email(invitation, accept_url):
         logger.error(f"Failed to send invitation email to {invitation.email}: {e}")
 
 
+def send_password_reset_otp_email(user, otp_code, expiry_minutes):
+    greeting_name = user.name or user.username
+
+    subject = "Your Real Estate Tracker password reset code"
+    message = (
+        f"Hi {greeting_name},\n\n"
+        f"We received a request to reset your Real Estate Tracker password.\n\n"
+        f"Your one-time verification code is: {otp_code}\n\n"
+        f"This code expires in {expiry_minutes} minutes. Enter it on the "
+        f"reset password page to continue.\n\n"
+        f"If you didn't request this, you can safely ignore this email — "
+        f"your password will not be changed."
+    )
+    from_email = getattr(settings, "DEFAULT_FROM_EMAIL", None) or getattr(settings, "EMAIL_HOST_USER", None)
+    try:
+        send_mail(subject, message, from_email, [user.email], fail_silently=False)
+    except Exception as e:
+        logger.error(f"Failed to send password reset OTP email to {user.email}: {e}")
+
+
 def send_invitation_sms(invitation, accept_url):
     backend_path = getattr(settings, "SMS_BACKEND", None)
     if not backend_path or not invitation.phone_number:
