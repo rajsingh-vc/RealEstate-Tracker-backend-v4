@@ -21,7 +21,9 @@ class Document(models.Model):
     file = models.FileField(upload_to=document_upload_path)
     type = models.CharField(max_length=16, blank=True)
     category = models.CharField(max_length=100, blank=True, default="General")
-    project = models.ForeignKey(Project, related_name="documents", on_delete=models.CASCADE)
+    project = models.ForeignKey(
+        Project, related_name="documents", on_delete=models.CASCADE, null=True, blank=True
+    )
     compliance = models.ForeignKey(
         ComplianceItem,
         related_name="documents",
@@ -52,3 +54,35 @@ class Document(models.Model):
 
     def __str__(self):
         return self.name
+
+
+class DocumentExtraction(models.Model):
+    STATUS_CHOICES = [
+        ("pending", "Pending"),
+        ("extracted", "Extracted"),
+        ("validated", "Validated"),
+        ("imported", "Imported"),
+        ("failed", "Failed"),
+    ]
+    document = models.ForeignKey(Document, on_delete=models.CASCADE, related_name="extractions")
+    status = models.CharField(max_length=32, choices=STATUS_CHOICES, default="pending")
+    doc_type = models.CharField(max_length=64, default="construction_schedule")
+    confidence_score = models.FloatField(default=0.0)
+    detected_project_name = models.CharField(max_length=255, blank=True)
+    detected_status_date = models.DateField(null=True, blank=True)
+    raw_data = models.JSONField(default=dict, blank=True)
+    normalized_data = models.JSONField(default=dict, blank=True)
+    validation_results = models.JSONField(default=dict, blank=True)
+    import_summary = models.JSONField(default=dict, blank=True)
+    error_message = models.TextField(blank=True)
+    imported_project = models.ForeignKey(
+        Project, null=True, blank=True, on_delete=models.SET_NULL, related_name="extractions"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"Extraction {self.id} for Document {self.document_id} ({self.status})"

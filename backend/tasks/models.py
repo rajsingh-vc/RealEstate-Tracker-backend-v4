@@ -113,6 +113,22 @@ class Task(models.Model):
     unit = models.ForeignKey(Unit, related_name="tasks", null=True, blank=True, on_delete=models.SET_NULL)
     phase = models.CharField(max_length=64, blank=True)  # free text, no choices
 
+    # Baseline, milestone, and document import fields
+    baseline_start_date = models.DateField(null=True, blank=True)
+    baseline_end_date = models.DateField(null=True, blank=True)
+    duration_days = models.FloatField(null=True, blank=True, default=None)
+    is_milestone = models.BooleanField(default=False)
+    parent = models.ForeignKey(
+        "self", null=True, blank=True, on_delete=models.CASCADE, related_name="subtasks"
+    )
+    source_document = models.ForeignKey(
+        "documents.Document", null=True, blank=True, on_delete=models.SET_NULL, related_name="imported_tasks"
+    )
+    source_page = models.IntegerField(null=True, blank=True)
+    source_ref = models.CharField(max_length=100, blank=True, default="")
+    source_row = models.IntegerField(null=True, blank=True)
+    wbs_code = models.CharField(max_length=100, blank=True, db_index=True, default="")
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -194,3 +210,29 @@ class TaskChatMessage(models.Model):
 
     def __str__(self):
         return f"Chat message by {self.author} on task {self.task_id}"
+
+
+class TaskDependency(models.Model):
+    DEPENDENCY_TYPES = [
+        ("FS", "Finish-to-Start"),
+        ("SS", "Start-to-Start"),
+        ("FF", "Finish-to-Finish"),
+        ("SF", "Start-to-Finish"),
+    ]
+    task = models.ForeignKey(
+        Task, on_delete=models.CASCADE, related_name="predecessor_dependencies", help_text="The dependent task (successor)"
+    )
+    predecessor = models.ForeignKey(
+        Task, on_delete=models.CASCADE, related_name="successor_dependencies", help_text="The preceding task"
+    )
+    dependency_type = models.CharField(max_length=4, choices=DEPENDENCY_TYPES, default="FS")
+    lag_days = models.FloatField(default=0.0, help_text="Lag (+days) or lead (-days)")
+    source_expression = models.CharField(max_length=64, blank=True, help_text="e.g. 2FS+3d")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["id"]
+        unique_together = [("task", "predecessor")]
+
+    def __str__(self):
+        return f"{self.predecessor_id} -> {self.task_id} ({self.dependency_type})"

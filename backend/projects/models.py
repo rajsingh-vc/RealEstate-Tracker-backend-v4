@@ -63,6 +63,13 @@ class Project(models.Model):
     hierarchy_mode = models.CharField(
         max_length=20, choices=HIERARCHY_CHOICES, default=HIERARCHY_FULL
     )
+    source_document = models.ForeignKey(
+        "documents.Document",
+        blank=True,
+        null=True,
+        on_delete=models.SET_NULL,
+        related_name="generated_projects",
+    )
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
