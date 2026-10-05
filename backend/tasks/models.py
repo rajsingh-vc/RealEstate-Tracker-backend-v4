@@ -147,13 +147,8 @@ class Task(models.Model):
         if self.project_id is None:
             return
         mode = self.project.hierarchy_mode
-        if mode == Project.HIERARCHY_FULL:
-            if not (self.tower_id and self.floor_id and self.unit_id):
-                raise ValidationError(
-                    "This project uses the full Tower → Floor → Unit hierarchy — "
-                    "tower, floor, and unit are all required."
-                )
-        elif mode == Project.HIERARCHY_DIRECT_TASK:
+        # Tower, floor, and unit are optional for all hierarchy modes.
+        if mode == Project.HIERARCHY_DIRECT_TASK:
             if self.tower_id or self.floor_id or self.unit_id:
                 raise ValidationError(
                     "This project is in Direct-to-Task mode — tasks can't be "

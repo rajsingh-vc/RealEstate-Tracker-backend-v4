@@ -213,10 +213,8 @@ class TaskSerializer(serializers.ModelSerializer):
                 attrs["floor"] = None
                 attrs["unit"] = None
             elif project.hierarchy_mode == project.HIERARCHY_FULL:
-                if not (tower and floor and unit):
-                    raise serializers.ValidationError(
-                        "This project uses the full hierarchy — tower, floor, and unit are all required."
-                    )
+                # Tower, floor, and unit are optional when creating or editing tasks.
+                pass
 
         return attrs
 

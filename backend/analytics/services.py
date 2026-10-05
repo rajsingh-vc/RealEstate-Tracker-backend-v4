@@ -18,7 +18,8 @@ from tasks.models import Task
 def department_stats():
     """Equivalent of the `departmentStats` array in demo-data.ts, computed live."""
     rows = (
-        Task.objects.values("department")
+        Task.objects.filter(project__isnull=False)
+        .values("department")
         .annotate(
             completed=Count("id", filter=Q(status="completed")),
             in_progress=Count("id", filter=Q(status="in_progress")),
@@ -88,7 +89,8 @@ def risk_level(score: int):
 def delay_predictions():
     """Equivalent of the `predictions` array built in DelayPrediction.tsx."""
     tasks = (
-        Task.objects.exclude(status="completed")
+        Task.objects.filter(project__isnull=False)
+        .exclude(status="completed")
         .select_related("project", "tower")
         .prefetch_related("dependencies")
     )
@@ -120,31 +122,37 @@ def delay_predictions():
 
 
 def generate_ai_response(message: str) -> str:
-    """
-    Port of generateResponse() in src/pages/AIAssistant.tsx.
-
-    Matches the original's output format exactly -- **bold** markdown markers
-    and emoji headers -- because the frontend's message renderer specifically
-    parses `**...**` spans and bolds them; dropping them would be a visible
-    regression, not just a data-source swap.
-
-    Two spots in the original hardcode demo-specific values ("Marine
-    Heights"/project p1 as "the most impacted project", "Civil"/"Finishing"
-    as top/bottom performers, and a recommendation naming two specific seed
-    hurdles by title). Those only happen to be true for the seed dataset --
-    against a real, changing database they'd quietly go stale or wrong. This
-    version computes the equivalent dynamically instead, while keeping the
-    surrounding sentence structure and tone identical.
-    """
     q = message.lower()
-    tasks = Task.objects.select_related("project")
-    hurdles = Hurdle.objects.all()
     projects = Project.objects.all()
+    tasks = Task.objects.filter(project__isnull=False).select_related("project", "tower")
+    hurdles = Hurdle.objects.all()
+
+    if not projects.exists():
+        return "There are currently no active projects in your workspace. Once you create a project, I will provide live progress metrics, risk predictions, and intelligent reporting."
+
+    # Check if a specific existing project is mentioned
+    for p in projects:
+        if p.name.lower() in q:
+            p_tasks = tasks.filter(project=p)
+            p_delayed = p_tasks.filter(Q(status="delayed") | Q(delay_days__gt=0))
+            p_completed = p_tasks.filter(status="completed").count()
+            p_total = p_tasks.count()
+            return (
+                f"🏗️ **{p.name}**\n\n"
+                f"• **Status:** {p.status}\n"
+                f"• **Location:** {p.location}\n"
+                f"• **Overall Completion:** {p.progress}%\n"
+                f"• **Tasks:** {p_completed}/{p_total} completed\n"
+                f"• **Delayed Tasks:** {p_delayed.count()} ({sum(t.delay_days for t in p_delayed)} delay days)\n"
+                f"• **RERA:** {p.rera_number or 'N/A'}"
+            )
 
     if "delayed" in q or "overdue" in q:
         delayed = list(tasks.filter(Q(status="delayed") | Q(delay_days__gt=0)))
+        if not delayed:
+            return "✅ **No overdue or delayed tasks** found across your active projects! Everything is currently on schedule."
         lines = [
-            f"• **{t.title}** — {t.delay_days} days delayed ({t.delay_reason or 'No reason specified'})"
+            f"• **{t.title}** ({t.project.name}) — {t.delay_days} days delayed ({t.delay_reason or 'No reason specified'})"
             for t in delayed
         ]
         total_impact = sum(t.delay_days for t in delayed)
@@ -156,32 +164,55 @@ def generate_ai_response(message: str) -> str:
 
         result = (
             f"📊 **Delayed Tasks Analysis**\n\nFound {len(delayed)} tasks with delays:\n\n"
-            + "\n".join(lines)
-            + f"\n\n**Total impact:** {total_impact} days across all tasks."
+            + "\n".join(lines[:10])
+            + f"\n\n**Total impact:** {total_impact} days across all active projects."
         )
         if top_project:
             result += f"\n\nThe most impacted project is **{top_project}** with {by_project[top_project]} delayed tasks."
         return result
 
-    if "hurdle" in q and "tower a" in q:
-        tower_a = list(hurdles.filter(affected_tower__iexact="Tower A"))
-        lines = [
-            f"• **{h.title}** — {h.severity} severity, {h.impact_days} days impact, Status: {h.status}"
-            for h in tower_a
-        ]
-        critical = sum(1 for h in tower_a if h.severity == "critical")
-        unresolved = sum(1 for h in tower_a if h.status != "resolved")
-        return (
-            f"🚧 **Hurdles Affecting Tower A**\n\nFound {len(tower_a)} hurdles:\n\n"
-            + "\n".join(lines)
-            + f"\n\n**Critical issues:** {critical} critical, {unresolved} unresolved."
-        )
+    if "hurdle" in q:
+        # Check if query mentions a specific tower from existing towers
+        existing_towers = Tower.objects.filter(project__isnull=False)
+        matched_tower = None
+        for tow in existing_towers:
+            if tow.name.lower() in q:
+                matched_tower = tow
+                break
+
+        if matched_tower:
+            tower_hurdles = list(hurdles.filter(affected_tower__iexact=matched_tower.name))
+            if not tower_hurdles:
+                return f"No open hurdles currently affecting **{matched_tower.name}**."
+            lines = [
+                f"• **{h.title}** — {h.severity} severity, {h.impact_days} days impact, Status: {h.status}"
+                for h in tower_hurdles
+            ]
+            critical = sum(1 for h in tower_hurdles if h.severity == "critical")
+            unresolved = sum(1 for h in tower_hurdles if h.status != "resolved")
+            return (
+                f"🚧 **Hurdles Affecting {matched_tower.name}**\n\nFound {len(tower_hurdles)} hurdles:\n\n"
+                + "\n".join(lines)
+                + f"\n\n**Critical issues:** {critical} critical, {unresolved} unresolved."
+            )
+        else:
+            open_hurdles = list(hurdles.exclude(status="resolved"))
+            if not open_hurdles:
+                return "✅ No unresolved hurdles currently reported across your active projects."
+            lines = [
+                f"• **{h.title}** ({h.affected_tower or 'General'}) — {h.severity} severity, {h.impact_days}d impact"
+                for h in open_hurdles[:8]
+            ]
+            return (
+                f"🚧 **Active Hurdles ({len(open_hurdles)})**\n\n"
+                + "\n".join(lines)
+            )
 
     if "progress" in q or "summary" in q:
         completed = tasks.filter(status="completed").count()
         in_prog = tasks.filter(status="in_progress").count()
         lines = [f"• **{p.name}** — {p.progress}% complete ({p.status})" for p in projects]
-        active_towers = Tower.objects.filter(status="Construction").count()
+        active_towers = Tower.objects.filter(project__isnull=False, status="Construction").count()
         return (
             "📈 **Portfolio Progress Summary**\n\n"
             + "\n".join(lines)
