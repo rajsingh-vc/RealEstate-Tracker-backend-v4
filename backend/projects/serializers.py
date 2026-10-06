@@ -77,8 +77,20 @@ class ProjectSerializer(serializers.ModelSerializer):
     )
 
     organization_name = serializers.CharField(source="organization.name", read_only=True)
+    organization_logo = serializers.SerializerMethodField(read_only=True)
     company_name = serializers.CharField(source="company.company_name", read_only=True)
     entity_name = serializers.CharField(source="entity.entity_name", read_only=True, allow_null=True)
+
+    def get_organization_logo(self, obj):
+        if obj.organization and obj.organization.logo:
+            request = self.context.get("request")
+            try:
+                if request:
+                    return request.build_absolute_uri(obj.organization.logo.url)
+                return obj.organization.logo.url
+            except Exception:
+                return None
+        return None
 
     budget = serializers.DecimalField(max_digits=16, decimal_places=2, coerce_to_string=False, required=False)
     spent = serializers.DecimalField(max_digits=16, decimal_places=2, coerce_to_string=False, required=False)
@@ -89,7 +101,7 @@ class ProjectSerializer(serializers.ModelSerializer):
             "id", "name", "location", "status", "start_date", "end_date", "progress",
             "towers", "total_units", "rera_number", "developer", "budget", "spent",
             "organization_id", "company_id", "entity_id",
-            "organization_name", "company_name", "entity_name",
+            "organization_name", "organization_logo", "company_name", "entity_name",
             "hierarchy_mode",  # ✅ NEW — camelCase renderer outputs this as hierarchyMode
             "created_at", "updated_at",  # ✅ NEW — renders as createdAt / updatedAt
         ]
