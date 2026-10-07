@@ -188,16 +188,18 @@ SIMPLE_JWT = {
     "BLACKLIST_AFTER_ROTATION": True,
 }
 
-# CORS — allow the Vite dev server to call the API during local development.
+# CORS — allow the Vite dev server and live frontend to call the API.
 CORS_ALLOWED_ORIGINS = os.environ.get(
-    "CORS_ALLOWED_ORIGINS", "http://localhost:5174,http://localhost:8080,http://127.0.0.1:8080"
+    "CORS_ALLOWED_ORIGINS",
+    "https://rst.vibesandbox.live,http://localhost:5173,http://localhost:5174,http://localhost:8080,http://127.0.0.1:8080"
 ).split(",")
 CORS_ALLOW_CREDENTIALS = True
 
 # Needed for /admin/ and any other session/cookie-based POST once the
 # frontend is served from a different (HTTPS) origin than the API in prod.
 CSRF_TRUSTED_ORIGINS = os.environ.get(
-    "CSRF_TRUSTED_ORIGINS", "http://localhost:5174,http://localhost:8080,http://127.0.0.1:8080"
+    "CSRF_TRUSTED_ORIGINS",
+    "https://rst.vibesandbox.live,http://localhost:5173,http://localhost:5174,http://localhost:8080,http://127.0.0.1:8080"
 ).split(",")
 
 # ---------------------------------------------------------------------------
@@ -227,14 +229,9 @@ else:
 
 DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", EMAIL_HOST_USER)
 
-# Invitation links now resolve the frontend domain dynamically at request
-# time from the inviting browser's Origin header (see
-# InvitationViewSet._resolve_accept_base_url in accounts/views.py), so you
-# do NOT need to set this per environment/deploy. This is only a fallback
-# used when an invite is created/resent outside a browser context (no
-# Origin/Referer header available), e.g. a management command or script.
+# Fallback invite URL for server-side generation
 FRONTEND_ACCEPT_INVITE_URL = os.environ.get(
-    "FRONTEND_ACCEPT_INVITE_URL", "http://localhost:5174/accept-invite"
+    "FRONTEND_ACCEPT_INVITE_URL", "https://rst.vibesandbox.live/accept-invite"
 )
 
 

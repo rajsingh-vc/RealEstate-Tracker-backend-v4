@@ -355,6 +355,8 @@ class InvitationSerializer(serializers.ModelSerializer):
     department = serializers.CharField(required=False, allow_blank=True, write_only=True)
     name = serializers.CharField(required=False, allow_blank=True)
     username = serializers.CharField(required=False, allow_blank=True)
+    token = serializers.CharField(read_only=True)
+    accept_url = serializers.SerializerMethodField()
 
     class Meta:
         model = Invitation
@@ -362,11 +364,26 @@ class InvitationSerializer(serializers.ModelSerializer):
             'id', 'email', 'phone_number', 'name', 'username', 'company', 'company_name',
             'role', 'role_name', 'department', 'department_name',
             'invited_by', 'invited_by_name', 'status', 'created_at', 'expires_at',
+            'token', 'accept_url',
         ]
         read_only_fields = [
             'invited_by', 'invited_by_name', 'status', 'created_at', 'expires_at',
             'company_name', 'role_name', 'department_name',
+            'token', 'accept_url',
         ]
+
+    def get_accept_url(self, obj):
+        request = self.context.get('request')
+        base_url = ""
+        if request:
+            try:
+                from accounts.views import InvitationViewSet
+                base_url = InvitationViewSet._resolve_accept_base_url(request)
+            except Exception:
+                pass
+        if not base_url:
+            base_url = getattr(settings, "FRONTEND_ACCEPT_INVITE_URL", "https://rst.vibesandbox.live/accept-invite")
+        return f"{base_url}?token={obj.token}"
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

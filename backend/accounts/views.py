@@ -320,29 +320,38 @@ class InvitationViewSet(viewsets.ModelViewSet):
     @staticmethod
     def _resolve_accept_base_url(request):
         """
-        Build the "/accept-invite" base URL dynamically instead of relying on
-        a hardcoded/env-pinned value, so invite links automatically point at
-        whatever domain the app is actually deployed on.
-
-        The browser that called this endpoint (the admin creating/resending
-        the invite) sends an Origin header equal to the live frontend's
-        origin — that's the same origin CORS_ALLOWED_ORIGINS already has to
-        trust for the request to have succeeded at all, so it's safe to
-        reuse here rather than asking a human to type the domain into .env.
-        Falls back to FRONTEND_ACCEPT_INVITE_URL (or localhost) only if no
-        usable Origin/Referer is present, e.g. invites triggered outside a
-        browser context (management command, server-to-server call, etc).
+        Build the "/accept-invite" base URL dynamically.
+        1. Checks request.data or query_params for explicit 'accept_base_url' sent by frontend.
+        2. Checks Origin or Referer header from the browser.
+        3. Checks settings.FRONTEND_ACCEPT_INVITE_URL.
+        4. Defaults to live production URL https://rst.vibesandbox.live/accept-invite.
         """
+        # If frontend passed its current accept URL directly
+        explicit = None
+        if hasattr(request, "data") and isinstance(request.data, dict):
+            explicit = request.data.get("accept_base_url")
+        if not explicit and hasattr(request, "query_params"):
+            explicit = request.query_params.get("accept_base_url")
+
+        if explicit:
+            parsed = urlparse(str(explicit))
+            if parsed.scheme in ("http", "https") and parsed.netloc:
+                clean_path = parsed.path.rstrip("/")
+                if not clean_path.endswith("/accept-invite") and not clean_path.endswith("accept-invite"):
+                    clean_path = f"{clean_path}/accept-invite"
+                return f"{parsed.scheme}://{parsed.netloc}{clean_path}"
+
         origin = request.headers.get("Origin") or request.headers.get("Referer")
         if origin:
             parsed = urlparse(origin)
-            if parsed.scheme and parsed.netloc:
+            if parsed.scheme in ("http", "https") and parsed.netloc:
                 candidate = f"{parsed.scheme}://{parsed.netloc}"
-                allowed_origins = getattr(settings, "CORS_ALLOWED_ORIGINS", [])
-                if candidate in allowed_origins:
-                    return f"{candidate}/accept-invite"
+                return f"{candidate}/accept-invite"
 
-        return getattr(settings, "FRONTEND_ACCEPT_INVITE_URL", "http://localhost:5173/accept-invite")
+        default_url = getattr(settings, "FRONTEND_ACCEPT_INVITE_URL", "")
+        if default_url and "localhost" not in default_url:
+            return default_url
+        return "https://rst.vibesandbox.live/accept-invite"
 
     def get_queryset(self):
         user = self.request.user
