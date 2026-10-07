@@ -371,6 +371,7 @@ class InvitationSerializer(serializers.ModelSerializer):
             'company_name', 'role_name', 'department_name',
             'token', 'accept_url',
         ]
+        validators = []
 
     def get_accept_url(self, obj):
         request = self.context.get('request')
@@ -413,19 +414,13 @@ class InvitationSerializer(serializers.ModelSerializer):
         if username and User.objects.filter(username=username).exists():
             raise serializers.ValidationError({"username": "This username is already taken."})
 
-        if Invitation.objects.filter(
-            email=attrs.get('email'), company=company, status=Invitation.Status.PENDING
-        ).exists():
-            raise serializers.ValidationError(
-                {"email": "A pending invitation already exists for this email in this organization."}
-            )
-
         return attrs
 
     def create(self, validated_data):
+        email = validated_data.get('email')
+        company = validated_data.get('company')
         role_name = validated_data.pop('role', '').strip()
         dept_name = validated_data.pop('department', '').strip()
-        company = validated_data.get('company')
 
         if role_name:
             role, _ = Role.objects.get_or_create(name=role_name, company=company)
@@ -435,6 +430,21 @@ class InvitationSerializer(serializers.ModelSerializer):
             validated_data['department'] = dept
 
         validated_data['invited_by'] = self.context['request'].user
+
+        # If an invitation already exists for this email & company, renew it seamlessly
+        existing = Invitation.objects.filter(email=email, company=company).first()
+        if existing:
+            if existing.status == Invitation.Status.ACCEPTED:
+                raise serializers.ValidationError({
+                    "email": "This user has already accepted an invitation and is an active user in this organization."
+                })
+            for k, v in validated_data.items():
+                setattr(existing, k, v)
+            existing.status = Invitation.Status.PENDING
+            existing.expires_at = timezone.now() + timedelta(days=getattr(settings, "INVITATION_EXPIRY_DAYS", 7))
+            existing.save()
+            return existing
+
         return Invitation.objects.create(**validated_data)
 
 
