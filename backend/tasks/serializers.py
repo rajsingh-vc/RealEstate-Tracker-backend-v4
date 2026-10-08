@@ -93,6 +93,10 @@ class TaskSerializer(serializers.ModelSerializer):
     depends_on = serializers.PrimaryKeyRelatedField(
         queryset=Task.objects.all(), required=False, allow_null=True
     )
+    parent_id = serializers.PrimaryKeyRelatedField(
+        source="parent", queryset=Task.objects.all(), required=False, allow_null=True
+    )
+    subtasks = serializers.SerializerMethodField()
 
     # Renamed from "checklist_items" (the model's related_name) to the
     # shorter "checklist", matching the frontend's Task.checklist field.
@@ -126,7 +130,7 @@ class TaskSerializer(serializers.ModelSerializer):
         model = Task
         fields = [
             "id", "title", "description", "department", "assigned_hod", "assigned_users",
-            "assigned_to", "depends_on", "is_repetitive", "repeat_frequency", "is_self_task",
+            "assigned_to", "depends_on", "parent_id", "subtasks", "is_repetitive", "repeat_frequency", "is_self_task",
             "start_date", "end_date", "actual_start_date", "actual_end_date",
             "priority", "status", "dependencies", "checklist", "progress",
             "delay_days", "delay_reason", "critical_path",
@@ -176,6 +180,22 @@ class TaskSerializer(serializers.ModelSerializer):
 
     def get_entity_name(self, obj):
         return obj.project.entity.entity_name if obj.project and obj.project.entity else None
+
+    def get_subtasks(self, obj):
+        return [
+            {
+                "id": s.id,
+                "title": s.title,
+                "status": s.status,
+                "progress": s.progress,
+                "priority": s.priority,
+                "assigned_to": s.assigned_to_id,
+                "start_date": str(s.start_date) if s.start_date else None,
+                "end_date": str(s.end_date) if s.end_date else None,
+                "created_at": s.created_at.isoformat() if s.created_at else None,
+            }
+            for s in obj.subtasks.all()
+        ]
 
     def validate(self, attrs):
         # A repeat frequency only makes sense when the task is actually

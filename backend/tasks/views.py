@@ -93,6 +93,63 @@ class TaskViewSet(viewsets.ModelViewSet):
         comment = task.comments.create(author=request.user, text=text)
         return Response(TaskCommentSerializer(comment).data, status=status.HTTP_201_CREATED)
 
+    @action(detail=True, methods=['get', 'post'], url_path='subtasks')
+    def subtasks(self, request, pk=None):
+        """GET /api/tasks/{id}/subtasks/  — list subtasks under this parent task.
+        POST /api/tasks/{id}/subtasks/ — create a child task under this task."""
+        task = self.get_object()
+
+        if request.method == 'GET':
+            subtasks = task.subtasks.all()
+            return Response(TaskListSerializer(subtasks, many=True).data)
+
+        title = (request.data.get('title') or request.data.get('name') or '').strip()
+        if not title:
+            raise ValidationError({"title": "Subtask title is required."})
+
+        subtask = Task.objects.create(
+            title=title,
+            parent=task,
+            project=task.project,
+            tower=task.tower,
+            floor=task.floor,
+            unit=task.unit,
+            department=request.data.get('department') or task.department,
+            priority=request.data.get('priority') or task.priority,
+            status=request.data.get('status') or 'not_started',
+            progress=int(request.data.get('progress') or 0),
+            assigned_to_id=request.data.get('assigned_to') or request.data.get('assignedTo') or None,
+            start_date=request.data.get('start_date') or request.data.get('startDate') or None,
+            end_date=request.data.get('end_date') or request.data.get('endDate') or None,
+        )
+        return Response(TaskSerializer(subtask).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['get', 'post'], url_path='checklist')
+    def checklist(self, request, pk=None):
+        """GET /api/tasks/{id}/checklist/ — list checklist items.
+        POST /api/tasks/{id}/checklist/ — create a checklist item."""
+        task = self.get_object()
+        if request.method == 'GET':
+            items = task.checklist_items.all()
+            return Response(TaskChecklistItemSerializer(items, many=True).data)
+
+        title = (request.data.get('title') or '').strip()
+        if not title:
+            raise ValidationError({"title": "This field is required."})
+
+        item = task.checklist_items.create(title=title, order=task.checklist_items.count())
+        return Response(TaskChecklistItemSerializer(item).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['delete'], url_path=r'checklist/(?P<item_id>\d+)')
+    def delete_checklist_item(self, request, pk=None, item_id=None):
+        """DELETE /api/tasks/{id}/checklist/{itemId}/ — deletes a checklist item."""
+        task = self.get_object()
+        deleted, _ = task.checklist_items.filter(pk=item_id).delete()
+        if not deleted:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        task.recalculate_progress_from_checklist()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
     @action(detail=True, methods=['post'], url_path=r'checklist/(?P<item_id>\d+)/toggle')
     def toggle_checklist_item(self, request, pk=None, item_id=None):
         """POST /api/tasks/{id}/checklist/{itemId}/toggle/ — flips completed
