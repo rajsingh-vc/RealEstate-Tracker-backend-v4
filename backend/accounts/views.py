@@ -301,6 +301,67 @@ class UserViewSet(viewsets.ModelViewSet):
         else:
             serializer.save(company=user.company)
 
+    @action(detail=True, methods=['post'])
+    def disable(self, request, pk=None):
+        """Immediately disables the user account and invalidates all active JWT tokens."""
+        target_user = self.get_object()
+        if target_user == request.user:
+            return Response({"detail": "You cannot disable your own account."}, status=status.HTTP_400_BAD_REQUEST)
+        if target_user.is_superuser and not request.user.is_superuser:
+            return Response({"detail": "Only SuperAdmin can disable another SuperAdmin."}, status=status.HTTP_403_FORBIDDEN)
+
+        target_user.is_active = False
+        target_user.save(update_fields=['is_active'])
+
+        # Blacklist all outstanding JWT refresh tokens for this user
+        try:
+            from rest_framework_simplejwt.token_blacklist.models import OutstandingToken, BlacklistedToken
+            for token in OutstandingToken.objects.filter(user=target_user):
+                BlacklistedToken.objects.get_or_create(token=token)
+        except Exception:
+            pass
+
+        return Response(UserSerializer(target_user, context={'request': request}).data)
+
+    @action(detail=True, methods=['post'])
+    def enable(self, request, pk=None):
+        """Re-enables a disabled user account."""
+        target_user = self.get_object()
+        target_user.is_active = True
+        target_user.save(update_fields=['is_active'])
+        return Response(UserSerializer(target_user, context={'request': request}).data)
+
+    def destroy(self, request, *args, **kwargs):
+        """
+        Deletes or soft-deactivates a user:
+        - Prevents self-deletion.
+        - Preserves historical tasks, comments, and audit trails without foreign key corruption.
+        - By default deactivates (is_active=False) and blacklists tokens; permanent deletion is supported with ?permanent=true.
+        """
+        target_user = self.get_object()
+        if target_user == request.user:
+            return Response({"detail": "You cannot delete your own account."}, status=status.HTTP_400_BAD_REQUEST)
+        if target_user.is_superuser and not request.user.is_superuser:
+            return Response({"detail": "Only SuperAdmin can delete another SuperAdmin."}, status=status.HTTP_403_FORBIDDEN)
+
+        permanent = request.query_params.get("permanent", "false").lower() == "true"
+        if permanent:
+            # Permanent removal
+            target_user.delete()
+            return Response(status=status.HTTP_204_NO_CONTENT)
+
+        # Soft deletion / deactivation
+        target_user.is_active = False
+        target_user.save(update_fields=['is_active'])
+        try:
+            from rest_framework_simplejwt.token_blacklist.models import OutstandingToken, BlacklistedToken
+            for token in OutstandingToken.objects.filter(user=target_user):
+                BlacklistedToken.objects.get_or_create(token=token)
+        except Exception:
+            pass
+
+        return Response({"detail": "User has been deactivated and removed from active access."}, status=status.HTTP_200_OK)
+
 
 class InvitationViewSet(viewsets.ModelViewSet):
     """

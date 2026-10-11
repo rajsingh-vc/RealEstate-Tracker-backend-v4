@@ -98,7 +98,8 @@ class ProjectSerializer(serializers.ModelSerializer):
     class Meta:
         model = Project
         fields = [
-            "id", "name", "location", "status", "start_date", "end_date", "progress",
+            "id", "name", "location", "address", "city", "state", "latitude", "longitude",
+            "status", "start_date", "end_date", "progress",
             "towers", "total_units", "rera_number", "developer", "budget", "spent",
             "organization_id", "company_id", "entity_id",
             "organization_name", "organization_logo", "company_name", "entity_name",

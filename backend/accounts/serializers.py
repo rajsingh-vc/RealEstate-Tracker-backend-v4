@@ -122,6 +122,9 @@ class UserSerializer(serializers.ModelSerializer):
     # User.has_perm_codename() helper — same permission check `permissions.py`
     # already enforces server-side — so this is just exposing it to the client.
     can_manage_users = serializers.SerializerMethodField()
+    assigned_projects = serializers.SerializerMethodField()
+    assigned_project_ids = serializers.SerializerMethodField()
+    invitation_status = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -129,10 +132,12 @@ class UserSerializer(serializers.ModelSerializer):
             'id', 'username', 'email', 'name', 'phone_number', 'role',
             'department', 'company', 'company_name', 'is_active',
             'is_superuser', 'last_login', 'activity_status', 'can_manage_users',
+            'assigned_projects', 'assigned_project_ids', 'invitation_status',
         ]
         read_only_fields = [
             'last_login', 'is_superuser', 'company_name', 'activity_status',
-            'can_manage_users',
+            'can_manage_users', 'assigned_projects', 'assigned_project_ids',
+            'invitation_status',
         ]
 
     def get_activity_status(self, obj):
@@ -141,6 +146,43 @@ class UserSerializer(serializers.ModelSerializer):
     def get_can_manage_users(self, obj):
         from .constants import Perms
         return obj.has_perm_codename(Perms.MANAGE_USERS)
+
+    def get_assigned_projects(self, obj):
+        names = set()
+        for p in obj.assigned_projects.all():
+            names.add(p.name)
+        try:
+            from tasks.models import Task
+            for name in Task.objects.filter(
+                models.Q(assigned_to=obj) | models.Q(assigned_users=obj)
+            ).values_list("project__name", flat=True).distinct():
+                if name:
+                    names.add(name)
+        except Exception:
+            pass
+        return sorted(list(names))
+
+    def get_assigned_project_ids(self, obj):
+        ids = set(obj.assigned_projects.values_list("id", flat=True))
+        try:
+            from tasks.models import Task
+            for pid in Task.objects.filter(
+                models.Q(assigned_to=obj) | models.Q(assigned_users=obj)
+            ).values_list("project_id", flat=True).distinct():
+                if pid:
+                    ids.add(pid)
+        except Exception:
+            pass
+        return sorted(list(ids))
+
+    def get_invitation_status(self, obj):
+        inv = getattr(obj, 'accepted_invitation', None)
+        if inv:
+            return inv.get_status_display()
+        inv_email = Invitation.objects.filter(email__iexact=obj.email).first()
+        if inv_email:
+            return inv_email.get_status_display()
+        return "Active"
 
 
 class UserCreateSerializer(serializers.ModelSerializer):
@@ -285,6 +327,10 @@ class UserUpdateSerializer(serializers.ModelSerializer):
     role_name = serializers.CharField(source='role.name', read_only=True, default='')
     department_name = serializers.CharField(source='department.name', read_only=True, default='')
     activity_status = serializers.SerializerMethodField()
+    assigned_project_ids = serializers.ListField(
+        child=serializers.IntegerField(), required=False, write_only=True
+    )
+    assigned_projects = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -292,19 +338,20 @@ class UserUpdateSerializer(serializers.ModelSerializer):
             'id', 'username', 'email', 'name', 'phone_number',
             'role', 'role_name', 'department', 'department_name',
             'company', 'company_name', 'is_active', 'is_superuser',
-            'last_login', 'activity_status',
+            'last_login', 'activity_status', 'assigned_project_ids', 'assigned_projects',
         ]
         read_only_fields = [
-            'last_login', 'is_superuser', 'company_name',
-            'role_name', 'department_name', 'activity_status',
+            'last_login', 'company_name',
+            'role_name', 'department_name', 'activity_status', 'assigned_projects',
         ]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         request = self.context.get('request')
         if request and request.user.is_authenticated and not request.user.is_superuser:
-            # Non-superadmins can't reassign a user's company.
+            # Non-superadmins can't reassign a user's company or superuser flag.
             self.fields.pop('company', None)
+            self.fields['is_superuser'].read_only = True
             # Scope the dropdown querysets to the admin's own company
             # (plus global/company=None roles, e.g. SuperAdmin-defined ones).
             company = request.user.company
@@ -321,13 +368,40 @@ class UserUpdateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Username already taken.")
         return value
 
+    def validate(self, attrs):
+        request = self.context.get('request')
+        if request and not request.user.is_superuser:
+            # Prevent non-superadmin from promoting anyone to superuser
+            if attrs.get('is_superuser'):
+                raise serializers.ValidationError({"is_superuser": "Only SuperAdmin can grant superuser access."})
+            # Prevent non-superadmin from assigning SuperAdmin role
+            role = attrs.get('role')
+            if role and "super" in role.name.lower():
+                raise serializers.ValidationError({"role": "Only SuperAdmin can assign this role."})
+        return attrs
+
     def update(self, instance, validated_data):
-        # role/department are now real FK objects (PrimaryKeyRelatedField
-        # already resolved them) — plain attribute assignment is enough.
+        project_ids = validated_data.pop("assigned_project_ids", None)
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
         instance.save()
+        if project_ids is not None:
+            from projects.models import Project
+            instance.assigned_projects.set(Project.objects.filter(id__in=project_ids))
         return instance
+
+    def get_assigned_projects(self, obj):
+        names = set(obj.assigned_projects.values_list("name", flat=True))
+        try:
+            from tasks.models import Task
+            for name in Task.objects.filter(
+                models.Q(assigned_to=obj) | models.Q(assigned_users=obj)
+            ).values_list("project__name", flat=True).distinct():
+                if name:
+                    names.add(name)
+        except Exception:
+            pass
+        return sorted(list(names))
 
     def get_activity_status(self, obj):
         return "Active" if obj.is_active else "Inactive"

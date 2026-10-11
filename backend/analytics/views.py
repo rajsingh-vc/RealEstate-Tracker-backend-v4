@@ -2,6 +2,7 @@ from rest_framework import permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from accounts.permissions import IsAdminOrSuperAdmin
 from projects.models import Project
 from tasks.models import Task
 
@@ -29,9 +30,9 @@ class DelayPredictionView(APIView):
 
 class AIAssistantView(APIView):
     """POST /api/analytics/ai-assistant/ {message} -> {response}
-    backs src/pages/AIAssistant.tsx."""
+    backs src/pages/AIAssistant.tsx. Accessible strictly to Admin and Super Admin."""
 
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsAdminOrSuperAdmin]
 
     def post(self, request):
         message = request.data.get("message", "")

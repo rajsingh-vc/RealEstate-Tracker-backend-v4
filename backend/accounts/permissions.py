@@ -105,3 +105,40 @@ class IsAuthenticatedReadOnly(BasePermission):
 # ---- Legacy aliases for projects that still import old names ----
 IsAdminOrCEO = IsCompanyAdminOrCEO
 ReadOnlyOrAuthenticated = IsAuthenticatedReadOnly
+
+
+def is_admin_or_superadmin(user) -> bool:
+    """Helper to check if a user is Super Admin or Admin (via flags, role name, or permissions)."""
+    if not user or not user.is_authenticated:
+        return False
+    if user.is_superuser:
+        return True
+    if user.has_perm_codename(Perms.MANAGE_USERS) or user.has_perm_codename(Perms.MANAGE_ORGANIZATION) or user.has_perm_codename("can_manage_projects"):
+        return True
+    role_name = (user.role.name if user.role else "").lower()
+    if any(k in role_name for k in ["admin", "ceo", "director", "owner", "super"]):
+        return True
+    return False
+
+
+class IsAdminOrSuperAdmin(BasePermission):
+    """
+    Strict access control: only Super Admin and Admin users.
+    Used for Document AI Assistant and project administrative setup.
+    """
+    def has_permission(self, request, view):
+        return is_admin_or_superadmin(request.user)
+
+
+class IsAdminOrSuperAdminOrReadOnly(BasePermission):
+    """
+    Allows read (list/retrieve) for any authenticated user,
+    but restricts create/update/delete strictly to Admin and Super Admin.
+    Used for Project, Tower, Floor, Unit, and ChecklistTemplate hierarchy setup.
+    """
+    def has_permission(self, request, view):
+        if not request.user or not request.user.is_authenticated:
+            return False
+        if request.method in SAFE_METHODS:
+            return True
+        return is_admin_or_superadmin(request.user)

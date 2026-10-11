@@ -4,7 +4,7 @@ from rest_framework.response import Response
 
 # TODO: point this at wherever your shared scoping helpers actually live —
 # per your setup, Tasks already uses this same pattern via
-# project__organization_id__in.
+from accounts.permissions import IsAdminOrSuperAdminOrReadOnly
 from adminpanel.scoping import is_unrestricted, user_organization_ids
 
 from .models import Project, Tower, Floor, Unit
@@ -15,6 +15,7 @@ from .serializers import (
 
 class ProjectViewSet(viewsets.ModelViewSet):
     queryset = Project.objects.select_related("organization", "company", "entity").prefetch_related("towers")
+    permission_classes = [IsAdminOrSuperAdminOrReadOnly]
 
     def get_serializer_class(self):
         return ProjectListSerializer if self.action == "list" else ProjectSerializer
@@ -30,6 +31,8 @@ class ProjectViewSet(viewsets.ModelViewSet):
 class TowerViewSet(viewsets.ModelViewSet):
     queryset = Tower.objects.select_related("project")
     serializer_class = TowerSerializer
+    permission_classes = [IsAdminOrSuperAdminOrReadOnly]
+    filterset_fields = ["project", "status"]
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -52,6 +55,8 @@ class TowerViewSet(viewsets.ModelViewSet):
 class FloorViewSet(viewsets.ModelViewSet):
     queryset = Floor.objects.select_related("tower", "project")
     serializer_class = FloorSerializer
+    permission_classes = [IsAdminOrSuperAdminOrReadOnly]
+    filterset_fields = ["project", "tower"]
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -72,6 +77,8 @@ class FloorViewSet(viewsets.ModelViewSet):
 class UnitViewSet(viewsets.ModelViewSet):
     queryset = Unit.objects.select_related("floor", "tower", "project")
     serializer_class = UnitSerializer
+    permission_classes = [IsAdminOrSuperAdminOrReadOnly]
+    filterset_fields = ["project", "tower", "floor", "status"]
 
     def get_queryset(self):
         qs = super().get_queryset()

@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.db import models
 
 # NOTE: Project.organization/company/entity intentionally target the
@@ -46,6 +47,16 @@ class Project(models.Model):
     )
     name = models.CharField(max_length=255)
     location = models.CharField(max_length=255)
+    address = models.TextField(blank=True, default="")
+    city = models.CharField(max_length=100, blank=True, default="")
+    state = models.CharField(max_length=100, blank=True, default="")
+    latitude = models.FloatField(null=True, blank=True)
+    longitude = models.FloatField(null=True, blank=True)
+    assigned_users = models.ManyToManyField(
+        settings.AUTH_USER_MODEL,
+        related_name="assigned_projects",
+        blank=True,
+    )
     status = models.CharField(max_length=64, default="Planning", blank=True)
     start_date = models.DateField(null=True, blank=True)
     end_date = models.DateField(null=True, blank=True)

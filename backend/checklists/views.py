@@ -1,6 +1,7 @@
 from django.db.models import Q
 from rest_framework import permissions, viewsets
 
+from accounts.permissions import IsAdminOrSuperAdminOrReadOnly
 from adminpanel.scoping import is_unrestricted, user_organization_ids
 
 from .models import Checklist, ChecklistTemplate, SubTask
@@ -12,7 +13,7 @@ class ChecklistTemplateViewSet(viewsets.ModelViewSet):
         "project", "linked_category", "linked_sub_category"
     ).prefetch_related("items").all()
     serializer_class = ChecklistTemplateSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsAdminOrSuperAdminOrReadOnly]
     filterset_fields = ["category", "project", "linked_category", "linked_sub_category"]
     search_fields = ["name", "category"]
 
