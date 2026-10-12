@@ -16,7 +16,7 @@ from .models import (
     Company, Department, Entity, EscalationRule, Invitation, OrganizationCompany,
     PasswordResetOTP, Role, User,
 )
-from .notifications import send_invitation_email, send_invitation_sms, send_password_reset_otp_email
+from .account_notifications import send_invitation_email, send_invitation_sms, send_password_reset_otp_email
 from notifications.utils import notify, notify_superadmins
 from .permissions import (
     CanManageDepartments,
