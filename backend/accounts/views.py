@@ -45,6 +45,9 @@ from .serializers import (
 )
 
 
+from rest_framework_simplejwt.views import TokenRefreshView
+
+
 def _tokens_for(user):
     refresh = RefreshToken.for_user(user)
     return {"access": str(refresh.access_token), "refresh": str(refresh)}
@@ -57,7 +60,25 @@ class LoginView(APIView):
         serializer = LoginSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         user = serializer.validated_data["user"]
+        user.last_login = timezone.now()
+        user.save(update_fields=["last_login"])
         return Response({**_tokens_for(user), "user": UserSerializer(user, context={'request': request}).data})
+
+
+class CustomTokenRefreshView(TokenRefreshView):
+    def post(self, request, *args, **kwargs):
+        response = super().post(request, *args, **kwargs)
+        if response.status_code == 200:
+            try:
+                refresh_str = request.data.get("refresh")
+                if refresh_str:
+                    refresh = RefreshToken(refresh_str)
+                    user_id = refresh.payload.get("user_id")
+                    if user_id:
+                        User.objects.filter(id=user_id).update(last_login=timezone.now())
+            except Exception:
+                pass
+        return response
 
 
 class LogoutView(APIView):
@@ -77,6 +98,14 @@ class MeView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
+        if request.user.is_authenticated:
+            now = timezone.now()
+            if not request.user.last_login or (now - request.user.last_login).total_seconds() > 300:
+                request.user.last_login = now
+                try:
+                    request.user.save(update_fields=['last_login'])
+                except Exception:
+                    pass
         return Response(UserSerializer(request.user, context={'request': request}).data)
 
 
@@ -485,6 +514,8 @@ class AcceptInvitationView(APIView):
         serializer.is_valid(raise_exception=True)
         invitation = serializer.validated_data['invitation']
         user = serializer.save()
+        user.last_login = timezone.now()
+        user.save(update_fields=['last_login'])
 
         # Notify whoever sent the invite (if they're not a SuperAdmin
         # themselves — they'll already get one below), plus every

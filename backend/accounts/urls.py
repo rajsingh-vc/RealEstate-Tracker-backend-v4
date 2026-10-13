@@ -1,8 +1,7 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from rest_framework_simplejwt.views import TokenRefreshView
 from .views import (
-    LoginView, LogoutView, MeView,
+    LoginView, LogoutView, MeView, CustomTokenRefreshView,
     ForgotPasswordView, VerifyOTPView, ResetPasswordView,
     UserViewSet, CompanyViewSet, RoleViewSet, DepartmentViewSet,
     OrganizationCompanyViewSet, EntityViewSet, EscalationRuleViewSet,
@@ -24,7 +23,7 @@ router.register("invitations", InvitationViewSet, basename="invitation")
 urlpatterns = [
     path("auth/login/", LoginView.as_view(), name="login"),
     path("auth/logout/", LogoutView.as_view(), name="logout"),
-    path("auth/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
+    path("auth/refresh/", CustomTokenRefreshView.as_view(), name="token_refresh"),
     path("auth/me/", MeView.as_view(), name="me"),
     path("auth/forgot-password/", ForgotPasswordView.as_view(), name="forgot-password"),
     path("auth/verify-otp/", VerifyOTPView.as_view(), name="verify-otp"),

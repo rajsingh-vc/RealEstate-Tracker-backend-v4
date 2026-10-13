@@ -125,6 +125,7 @@ class UserSerializer(serializers.ModelSerializer):
     assigned_projects = serializers.SerializerMethodField()
     assigned_project_ids = serializers.SerializerMethodField()
     invitation_status = serializers.SerializerMethodField()
+    last_login = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -160,6 +161,23 @@ class UserSerializer(serializers.ModelSerializer):
                     names.add(name)
         except Exception:
             pass
+
+        # If not explicitly assigned, determine project from Organization / Company
+        if not names:
+            try:
+                from projects.models import Project
+                if obj.company_id:
+                    for name in Project.objects.filter(organization=obj.company).values_list("name", flat=True).distinct():
+                        if name:
+                            names.add(name)
+                elif not obj.is_superuser:
+                    # Default / Primary Tenant projects
+                    for name in Project.objects.filter(organization__isnull=True).values_list("name", flat=True).distinct():
+                        if name:
+                            names.add(name)
+            except Exception:
+                pass
+
         return sorted(list(names))
 
     def get_assigned_project_ids(self, obj):
@@ -173,6 +191,22 @@ class UserSerializer(serializers.ModelSerializer):
                     ids.add(pid)
         except Exception:
             pass
+
+        # If not explicitly assigned, determine project IDs from Organization / Company
+        if not ids:
+            try:
+                from projects.models import Project
+                if obj.company_id:
+                    for pid in Project.objects.filter(organization=obj.company).values_list("id", flat=True).distinct():
+                        if pid:
+                            ids.add(pid)
+                elif not obj.is_superuser:
+                    for pid in Project.objects.filter(organization__isnull=True).values_list("id", flat=True).distinct():
+                        if pid:
+                            ids.add(pid)
+            except Exception:
+                pass
+
         return sorted(list(ids))
 
     def get_invitation_status(self, obj):
@@ -183,6 +217,54 @@ class UserSerializer(serializers.ModelSerializer):
         if inv_email:
             return inv_email.get_status_display()
         return "Active"
+
+    def get_last_login(self, obj):
+        val = obj.last_login
+
+        # 1. Fetch latest device login from OutstandingToken (tracks logins across all devices)
+        try:
+            from rest_framework_simplejwt.token_blacklist.models import OutstandingToken
+            latest_token = OutstandingToken.objects.filter(user=obj).order_by('-created_at').first()
+            if latest_token and (val is None or latest_token.created_at > val):
+                val = latest_token.created_at
+                try:
+                    obj.last_login = val
+                    obj.save(update_fields=['last_login'])
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+        # 2. If the user making this API request is this user, they are actively logged in right now
+        req = self.context.get('request')
+        if req and getattr(req, 'user', None) and req.user.is_authenticated and req.user.id == obj.id:
+            now = timezone.now()
+            if not val or (now - val).total_seconds() > 300:
+                val = now
+                try:
+                    obj.last_login = val
+                    obj.save(update_fields=['last_login'])
+                except Exception:
+                    pass
+
+        # 3. Fallback for users who accepted an invite or active users
+        if not val:
+            try:
+                inv = getattr(obj, 'accepted_invitation', None)
+                if not inv:
+                    inv = Invitation.objects.filter(
+                        models.Q(accepted_by=obj) | models.Q(email__iexact=obj.email, status='accepted')
+                    ).first()
+                if inv and inv.created_at:
+                    val = inv.created_at
+            except Exception:
+                pass
+
+        if not val and obj.date_joined and obj.is_active:
+            val = obj.date_joined
+
+        return val.isoformat() if val else None
+
 
 
 class UserCreateSerializer(serializers.ModelSerializer):
@@ -331,6 +413,7 @@ class UserUpdateSerializer(serializers.ModelSerializer):
         child=serializers.IntegerField(), required=False, write_only=True
     )
     assigned_projects = serializers.SerializerMethodField()
+    last_login = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -401,10 +484,40 @@ class UserUpdateSerializer(serializers.ModelSerializer):
                     names.add(name)
         except Exception:
             pass
+
+        if not names:
+            try:
+                from projects.models import Project
+                if obj.company_id:
+                    for name in Project.objects.filter(organization=obj.company).values_list("name", flat=True).distinct():
+                        if name:
+                            names.add(name)
+                elif not obj.is_superuser:
+                    for name in Project.objects.filter(organization__isnull=True).values_list("name", flat=True).distinct():
+                        if name:
+                            names.add(name)
+            except Exception:
+                pass
+
         return sorted(list(names))
 
     def get_activity_status(self, obj):
         return "Active" if obj.is_active else "Inactive"
+
+    def get_last_login(self, obj):
+        val = obj.last_login
+        if not val:
+            try:
+                from rest_framework_simplejwt.token_blacklist.models import OutstandingToken
+                latest_token = OutstandingToken.objects.filter(user=obj).order_by('-created_at').first()
+                if latest_token:
+                    val = latest_token.created_at
+            except Exception:
+                pass
+        if not val and obj.date_joined and obj.is_active:
+            val = obj.date_joined
+        return val.isoformat() if val else None
+
 
 
 class InvitationSerializer(serializers.ModelSerializer):
