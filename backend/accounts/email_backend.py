@@ -15,7 +15,8 @@ and trusts that certificate.
 """
 
 import ssl
-from django.core.mail.backends.smtp import EmailBackend as SMTPBackend
+from django.core.mail.backends.smtp import EmailBackend as SMTPBackend  # type: ignore[import-untyped]
+from django.utils.functional import cached_property  # type: ignore[import-untyped]
 
 try:
     import truststore
@@ -25,12 +26,11 @@ except ImportError:
 
 
 class CertifiEmailBackend(SMTPBackend):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    @cached_property
+    def ssl_context(self):
         if HAS_TRUSTSTORE:
             try:
-                self.ssl_context = truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-                return
+                return truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
             except Exception:
                 pass
-        self.ssl_context = ssl.create_default_context()
+        return ssl.create_default_context()
