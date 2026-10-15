@@ -1,4 +1,5 @@
 from datetime import timedelta
+from typing import Any
 from urllib.parse import urlparse
 
 from django.conf import settings
@@ -121,7 +122,7 @@ class CompanyViewSet(viewsets.ModelViewSet):
     parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     def get_queryset(self):
-        user = self.request.user
+        user: Any = self.request.user
         if user.is_superuser:
             return Company.objects.all().order_by('-created_at')
         if user.company_id:
@@ -197,12 +198,14 @@ class OrganizationCompanyViewSet(viewsets.ModelViewSet):
     permission_classes = [CanManageDepartments]
 
     def get_queryset(self):
+        req: Any = self.request
+        user: Any = req.user
         qs = OrganizationCompany.objects.all()
-        org_id = self.request.query_params.get('organization')
+        org_id = req.query_params.get('organization')
         if org_id:
             qs = qs.filter(organization_id=org_id)
-        if not self.request.user.is_superuser and self.request.user.company_id:
-            qs = qs.filter(organization_id=self.request.user.company_id)
+        if not user.is_superuser and user.company_id:
+            qs = qs.filter(organization_id=user.company_id)
         return qs.order_by('company_name')
 
 
@@ -211,12 +214,14 @@ class EntityViewSet(viewsets.ModelViewSet):
     permission_classes = [CanManageDepartments]
 
     def get_queryset(self):
+        req: Any = self.request
+        user: Any = req.user
         qs = Entity.objects.all()
-        org_id = self.request.query_params.get('organization')
+        org_id = req.query_params.get('organization')
         if org_id:
             qs = qs.filter(organization_id=org_id)
-        if not self.request.user.is_superuser and self.request.user.company_id:
-            qs = qs.filter(organization_id=self.request.user.company_id)
+        if not user.is_superuser and user.company_id:
+            qs = qs.filter(organization_id=user.company_id)
         return qs.order_by('entity_name')
 
 
@@ -225,13 +230,13 @@ class EscalationRuleViewSet(viewsets.ModelViewSet):
     permission_classes = [IsCompanyAdminOrCEO]
 
     def get_queryset(self):
-        user = self.request.user
+        user: Any = self.request.user
         if user.is_superuser:
             return EscalationRule.objects.all()
         return EscalationRule.objects.filter(company=user.company)
 
     def perform_create(self, serializer):
-        user = self.request.user
+        user: Any = self.request.user
         serializer.save(company=None if user.is_superuser else user.company)
 
 
@@ -247,10 +252,11 @@ class DepartmentViewSet(viewsets.ModelViewSet):
     permission_classes = [CanManageDepartments]
 
     def get_queryset(self):
-        user = self.request.user
+        req: Any = self.request
+        user: Any = req.user
         if user.is_superuser:
             qs = Department.objects.all().order_by('company_id', 'name')
-            company_id = self.request.query_params.get('company')
+            company_id = req.query_params.get('company')
             if company_id:
                 qs = qs.filter(company_id=company_id)
             return qs
@@ -259,7 +265,7 @@ class DepartmentViewSet(viewsets.ModelViewSet):
         return Department.objects.none()
 
     def perform_create(self, serializer):
-        user = self.request.user
+        user: Any = self.request.user
         if user.is_superuser:
             serializer.save()  # `company` is required in the payload for superadmin
         else:
@@ -275,10 +281,11 @@ class RoleViewSet(viewsets.ModelViewSet):
     permission_classes = [CanManageRoles]
 
     def get_queryset(self):
-        user = self.request.user
+        req: Any = self.request
+        user: Any = req.user
         if user.is_superuser:
             qs = Role.objects.all().order_by('company_id', 'name')
-            company_id = self.request.query_params.get('company')
+            company_id = req.query_params.get('company')
             if company_id:
                 qs = qs.filter(
                     db_models.Q(company_id=company_id) | db_models.Q(company__isnull=True)
@@ -289,7 +296,7 @@ class RoleViewSet(viewsets.ModelViewSet):
         )
 
     def perform_create(self, serializer):
-        user = self.request.user
+        user: Any = self.request.user
         if user.is_superuser:
             serializer.save()
         else:
@@ -315,7 +322,7 @@ class UserViewSet(viewsets.ModelViewSet):
         return UserSerializer
 
     def get_queryset(self):
-        user = self.request.user
+        user: Any = self.request.user
         base = User.objects.select_related('company', 'role', 'department').order_by('-date_joined')
         if user.is_superuser:
             return base
@@ -324,7 +331,7 @@ class UserViewSet(viewsets.ModelViewSet):
         return User.objects.none()
 
     def perform_create(self, serializer):
-        user = self.request.user
+        user: Any = self.request.user
         if user.is_superuser:
             serializer.save()
         else:
@@ -333,10 +340,11 @@ class UserViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'])
     def disable(self, request, pk=None):
         """Immediately disables the user account and invalidates all active JWT tokens."""
-        target_user = self.get_object()
-        if target_user == request.user:
+        req_user: Any = request.user
+        target_user: Any = self.get_object()
+        if target_user == req_user:
             return Response({"detail": "You cannot disable your own account."}, status=status.HTTP_400_BAD_REQUEST)
-        if target_user.is_superuser and not request.user.is_superuser:
+        if target_user.is_superuser and not req_user.is_superuser:
             return Response({"detail": "Only SuperAdmin can disable another SuperAdmin."}, status=status.HTTP_403_FORBIDDEN)
 
         target_user.is_active = False
@@ -414,7 +422,7 @@ class InvitationViewSet(viewsets.ModelViewSet):
         1. Checks request.data or query_params for explicit 'accept_base_url' sent by frontend.
         2. Checks Origin or Referer header from the browser.
         3. Checks settings.FRONTEND_ACCEPT_INVITE_URL.
-        4. Defaults to live production URL https://rst.vibesandbox.live/accept-invite.
+        4. Defaults to live production URL https://track.konstruct.world/accept-invite.
         """
         # If frontend passed its current accept URL directly
         explicit = None
@@ -441,10 +449,10 @@ class InvitationViewSet(viewsets.ModelViewSet):
         default_url = getattr(settings, "FRONTEND_ACCEPT_INVITE_URL", "")
         if default_url and "localhost" not in default_url:
             return default_url
-        return "https://rst.vibesandbox.live/accept-invite"
+        return "https://track.konstruct.world/accept-invite"
 
     def get_queryset(self):
-        user = self.request.user
+        user: Any = self.request.user
         base = Invitation.objects.select_related('company', 'role', 'department', 'invited_by').order_by('-created_at')
         if user.is_superuser:
             return base

@@ -88,9 +88,9 @@ class LoginSerializer(serializers.Serializer):
     username = serializers.CharField()
     password = serializers.CharField(write_only=True)
 
-    def validate(self, data):
-        username = data.get("username")
-        password = data.get("password")
+    def validate(self, attrs):
+        username = attrs.get("username")
+        password = attrs.get("password")
         if not username or not password:
             raise serializers.ValidationError("Username and password are required")
         user = authenticate(username=username, password=password)
@@ -98,8 +98,8 @@ class LoginSerializer(serializers.Serializer):
             raise serializers.ValidationError("Invalid credentials")
         if not user.is_active:
             raise serializers.ValidationError("User account is disabled")
-        data["user"] = user
-        return data
+        attrs["user"] = user
+        return attrs
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -572,7 +572,7 @@ class InvitationSerializer(serializers.ModelSerializer):
             except Exception:
                 pass
         if not base_url:
-            base_url = getattr(settings, "FRONTEND_ACCEPT_INVITE_URL", "https://rst.vibesandbox.live/accept-invite")
+            base_url = getattr(settings, "FRONTEND_ACCEPT_INVITE_URL", "https://track.konstruct.world/accept-invite")
         return f"{base_url}?token={obj.token}"
 
     def __init__(self, *args, **kwargs):

@@ -39,7 +39,7 @@ if not DEBUG and SECRET_KEY == _INSECURE_DEFAULT_KEY:
         "the default insecure key. Set DJANGO_SECRET_KEY in the environment."
     )
 
-ALLOWED_HOSTS = os.environ.get("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
+ALLOWED_HOSTS = os.environ.get("DJANGO_ALLOWED_HOSTS", "track.konstruct.world,localhost,127.0.0.1").split(",")
 
 
 # Application definition
@@ -144,6 +144,7 @@ USE_TZ = True
 
 
 STATIC_URL = "static/"
+STATIC_ROOT = BASE_DIR / "static"
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
 
@@ -191,7 +192,7 @@ SIMPLE_JWT = {
 # CORS — allow the Vite dev server and live frontend to call the API.
 CORS_ALLOWED_ORIGINS = os.environ.get(
     "CORS_ALLOWED_ORIGINS",
-    "https://rst.vibesandbox.live,http://localhost:5173,http://localhost:5174,http://localhost:8080,http://127.0.0.1:8080"
+    "https://track.konstruct.world,https://rst.vibesandbox.live,http://localhost:5173,http://localhost:5174,http://localhost:8080,http://127.0.0.1:8080"
 ).split(",")
 CORS_ALLOW_CREDENTIALS = True
 
@@ -199,7 +200,7 @@ CORS_ALLOW_CREDENTIALS = True
 # frontend is served from a different (HTTPS) origin than the API in prod.
 CSRF_TRUSTED_ORIGINS = os.environ.get(
     "CSRF_TRUSTED_ORIGINS",
-    "https://rst.vibesandbox.live,http://localhost:5173,http://localhost:5174,http://localhost:8080,http://127.0.0.1:8080"
+    "https://track.konstruct.world,https://rst.vibesandbox.live,http://localhost:5173,http://localhost:5174,http://localhost:8080,http://127.0.0.1:8080"
 ).split(",")
 
 # ---------------------------------------------------------------------------
@@ -231,7 +232,7 @@ DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "Real Estate Tracker <
 
 # Fallback invite URL for server-side generation
 FRONTEND_ACCEPT_INVITE_URL = os.environ.get(
-    "FRONTEND_ACCEPT_INVITE_URL", "https://rst.vibesandbox.live/accept-invite"
+    "FRONTEND_ACCEPT_INVITE_URL", "https://track.konstruct.world/accept-invite"
 )
 
 
