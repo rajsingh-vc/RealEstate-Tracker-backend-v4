@@ -126,12 +126,29 @@ class TaskSerializer(serializers.ModelSerializer):
     entity_id = serializers.SerializerMethodField()
     entity_name = serializers.SerializerMethodField()
 
+    predecessors = serializers.SerializerMethodField()
+
+    def get_predecessors(self, obj):
+        return [
+            {
+                "id": dep.id,
+                "predecessorId": dep.predecessor_id,
+                "predecessorTitle": dep.predecessor.title if dep.predecessor else "",
+                "type": dep.dependency_type,
+                "lagDays": dep.lag_days,
+                "sourceExpression": dep.source_expression,
+            }
+            for dep in obj.predecessor_dependencies.select_related("predecessor").all()
+        ]
+
     class Meta:
         model = Task
         fields = [
             "id", "title", "description", "department", "assigned_hod", "assigned_users",
             "assigned_to", "depends_on", "parent_id", "subtasks", "is_repetitive", "repeat_frequency", "is_self_task",
             "start_date", "end_date", "actual_start_date", "actual_end_date",
+            "baseline_start_date", "baseline_end_date", "duration_days", "is_milestone",
+            "wbs_code", "source_ref", "source_document", "predecessors",
             "priority", "status", "dependencies", "checklist", "progress",
             "delay_days", "delay_reason", "critical_path",
             "project_id", "tower_id", "floor_id", "unit_id", "phase", "comments",
@@ -269,7 +286,7 @@ class TaskSerializer(serializers.ModelSerializer):
 
 
 class TaskListSerializer(TaskSerializer):
-    """Lightweight variant for list views: drops nested checklist/comments."""
+    """List view serializer: retains checklist items for inspection/flow workflows, drops comments."""
 
     class Meta(TaskSerializer.Meta):
-        fields = [f for f in TaskSerializer.Meta.fields if f not in ("checklist", "comments")]
+        fields = [f for f in TaskSerializer.Meta.fields if f != "comments"]
