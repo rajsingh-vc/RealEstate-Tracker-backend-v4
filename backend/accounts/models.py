@@ -288,3 +288,176 @@ class Invitation(models.Model):
 
     def __str__(self):
         return f"{self.email} -> {self.company.name} ({self.status})"
+
+
+class AppModule(models.Model):
+    """
+    Central registry of all functional modules in Konstruct Tracker.
+    New modules can be registered dynamically or via DEFAULT_MODULES.
+    """
+    CATEGORY_CHOICES = [
+        ('Main', 'Main'),
+        ('Operations', 'Operations'),
+        ('Management', 'Management'),
+        ('System', 'System'),
+    ]
+
+    key = models.CharField(max_length=64, unique=True, db_index=True)
+    name = models.CharField(max_length=128)
+    description = models.TextField(blank=True, default='')
+    category = models.CharField(max_length=64, choices=CATEGORY_CHOICES, default='Main')
+    route = models.CharField(max_length=255, default='/')
+    icon = models.CharField(max_length=64, blank=True, default='')
+    order = models.PositiveIntegerField(default=0)
+    is_active = models.BooleanField(
+        default=True,
+        help_text="Global master switch: if False, module is disabled globally"
+    )
+    default_enabled = models.BooleanField(
+        default=True,
+        help_text="Default access permission for users without explicit overrides"
+    )
+    default_visible = models.BooleanField(
+        default=True,
+        help_text="Default navigation visibility"
+    )
+    admin_only = models.BooleanField(
+        default=False,
+        help_text="If True, only administrators have access by default"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['order', 'name']
+
+    def __str__(self):
+        return f"{self.name} ({self.key})"
+
+
+class RoleModulePermission(models.Model):
+    """
+    Role-level module policy: specifies default visibility and access
+    for all users assigned to this Role (optionally scoped to an organization).
+    """
+    role = models.ForeignKey(Role, on_delete=models.CASCADE, related_name='module_permissions')
+    module = models.ForeignKey(AppModule, on_delete=models.CASCADE, related_name='role_permissions')
+    organization = models.ForeignKey(
+        Company,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name='role_module_permissions',
+        help_text="Null for global role policies, or scoped to a specific tenant"
+    )
+    is_enabled = models.BooleanField(default=True)
+    is_visible = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ('role', 'module', 'organization')
+
+    def __str__(self):
+        return f"{self.role.name} - {self.module.key}: {'Enabled' if self.is_enabled else 'Disabled'}"
+
+
+class UserModulePermission(models.Model):
+    """
+    User-specific module override: allows SuperAdmin or authorized Site Admin
+    to grant or revoke access/visibility for an individual user, optionally
+    scoped to a specific project.
+    Three-state semantics:
+      None  = Inherit from Role / System default
+      True  = Explicitly Enabled / Visible
+      False = Explicitly Disabled / Hidden
+    """
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='module_overrides')
+    module = models.ForeignKey(AppModule, on_delete=models.CASCADE, related_name='user_overrides')
+    project = models.ForeignKey(
+        'projects.Project',
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name='user_module_permissions'
+    )
+    is_enabled = models.BooleanField(
+        null=True,
+        blank=True,
+        default=None,
+        help_text="None=Inherit, True=Allowed, False=Blocked"
+    )
+    is_visible = models.BooleanField(
+        null=True,
+        blank=True,
+        default=None,
+        help_text="None=Inherit, True=Show in Nav, False=Hide from Nav"
+    )
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='module_overrides_configured'
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ('user', 'module', 'project')
+
+    def __str__(self):
+        return f"{self.user.username} - {self.module.key}: enabled={self.is_enabled}, visible={self.is_visible}"
+
+
+class ModuleAuditLog(models.Model):
+    """
+    Audit trail for all module visibility and permission configuration changes.
+    """
+    actor = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='module_audit_actions'
+    )
+    action = models.CharField(max_length=64)  # update_user_override, update_role_policy, toggle_global, reset_user_override, bulk_update
+    module_key = models.CharField(max_length=64, blank=True, default='')
+    target_user = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='module_audit_received'
+    )
+    target_role = models.ForeignKey(
+        Role,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='module_audit_role_logs'
+    )
+    target_project = models.ForeignKey(
+        'projects.Project',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='module_audit_project_logs'
+    )
+    organization = models.ForeignKey(
+        Company,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='module_audit_logs'
+    )
+    previous_value = models.JSONField(default=dict, blank=True)
+    new_value = models.JSONField(default=dict, blank=True)
+    details = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"[{self.created_at.strftime('%Y-%m-%d %H:%M')}] {self.actor.username if self.actor else 'System'} - {self.action} on {self.module_key or 'all'}"

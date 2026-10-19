@@ -877,6 +877,8 @@ class ScheduleParserService:
                             "progress": 100 if item.completed else 0,
                             "tower": tower,
                             "floor": task.floor,
+                            "start_date": task.start_date,
+                            "end_date": task.end_date,
                         },
                     )
 
@@ -910,6 +912,8 @@ class ScheduleParserService:
                             "progress": child.progress,
                             "tower": child.tower or tower,
                             "floor": child.floor or task.floor,
+                            "start_date": child.start_date or task.start_date,
+                            "end_date": child.end_date or task.end_date,
                         },
                     )
 

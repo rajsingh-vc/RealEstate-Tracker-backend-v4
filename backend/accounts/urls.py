@@ -7,6 +7,17 @@ from .views import (
     OrganizationCompanyViewSet, EntityViewSet, EscalationRuleViewSet,
     InvitationViewSet, AcceptInvitationView, InvitationPreviewView,
 )
+from .module_views import (
+    AppModuleViewSet,
+    BulkUserModuleConfigView,
+    ModuleAuditLogListView,
+    ModuleMatrixView,
+    MyModulePermissionsView,
+    ResetUserModuleConfigView,
+    RoleModuleConfigView,
+    ToggleGlobalModuleView,
+    UserModuleConfigView,
+)
 
 router = DefaultRouter()
 router.register("users", UserViewSet, basename="user")
@@ -17,6 +28,7 @@ router.register("escalation-rules", EscalationRuleViewSet, basename="escalation-
 router.register("roles", RoleViewSet, basename="role")
 router.register("departments", DepartmentViewSet, basename="department")
 router.register("invitations", InvitationViewSet, basename="invitation")
+router.register("modules", AppModuleViewSet, basename="module")
 # Note: router auto-generates POST /invitations/{id}/resend/ from the
 # @action on InvitationViewSet — no manual path needed here.
 
@@ -30,5 +42,16 @@ urlpatterns = [
     path("auth/reset-password/", ResetPasswordView.as_view(), name="reset-password"),
     path("auth/invitations/<str:token>/", InvitationPreviewView.as_view(), name="invitation-preview"),
     path("auth/accept-invite/", AcceptInvitationView.as_view(), name="accept-invite"),
+
+    # Module Visibility & Access Management
+    path("modules/my-permissions/", MyModulePermissionsView.as_view(), name="my-module-permissions"),
+    path("modules/toggle-global/", ToggleGlobalModuleView.as_view(), name="toggle-global-module"),
+    path("modules/matrix/", ModuleMatrixView.as_view(), name="module-matrix"),
+    path("modules/audit-logs/", ModuleAuditLogListView.as_view(), name="module-audit-logs"),
+    path("modules/users/bulk/", BulkUserModuleConfigView.as_view(), name="bulk-user-module-config"),
+    path("modules/users/<int:user_id>/", UserModuleConfigView.as_view(), name="user-module-config"),
+    path("modules/users/<int:user_id>/reset/", ResetUserModuleConfigView.as_view(), name="reset-user-module-config"),
+    path("modules/roles/<int:role_id>/", RoleModuleConfigView.as_view(), name="role-module-config"),
+
     path("", include(router.urls)),
 ]

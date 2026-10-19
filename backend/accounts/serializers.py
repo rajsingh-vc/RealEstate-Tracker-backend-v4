@@ -126,6 +126,8 @@ class UserSerializer(serializers.ModelSerializer):
     assigned_project_ids = serializers.SerializerMethodField()
     invitation_status = serializers.SerializerMethodField()
     last_login = serializers.SerializerMethodField()
+    module_permissions = serializers.SerializerMethodField()
+    module_access_map = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -134,12 +136,30 @@ class UserSerializer(serializers.ModelSerializer):
             'department', 'company', 'company_name', 'is_active',
             'is_superuser', 'last_login', 'activity_status', 'can_manage_users',
             'assigned_projects', 'assigned_project_ids', 'invitation_status',
+            'module_permissions', 'module_access_map',
         ]
         read_only_fields = [
             'last_login', 'is_superuser', 'company_name', 'activity_status',
             'can_manage_users', 'assigned_projects', 'assigned_project_ids',
-            'invitation_status',
+            'invitation_status', 'module_permissions', 'module_access_map',
         ]
+
+    def get_module_permissions(self, obj):
+        try:
+            from .module_registry import get_user_effective_modules
+            req = self.context.get('request')
+            project_id = None
+            if req:
+                pid = req.query_params.get('project_id')
+                if pid and pid.isdigit():
+                    project_id = int(pid)
+            return get_user_effective_modules(obj, project_id=project_id)
+        except Exception:
+            return []
+
+    def get_module_access_map(self, obj):
+        perms = self.get_module_permissions(obj)
+        return {m['key']: {'is_enabled': m['is_enabled'], 'is_visible': m['is_visible']} for m in perms}
 
     def get_activity_status(self, obj):
         return "Active" if obj.is_active else "Inactive"
@@ -162,6 +182,15 @@ class UserSerializer(serializers.ModelSerializer):
         except Exception:
             pass
 
+        # SuperAdmin has access to all projects by default
+        if obj.is_superuser:
+            try:
+                from projects.models import Project
+                all_names = list(Project.objects.values_list("name", flat=True).distinct())
+                return sorted(all_names) if all_names else ["All Projects"]
+            except Exception:
+                return ["All Projects"]
+
         # If not explicitly assigned, determine project from Organization / Company
         if not names:
             try:
@@ -170,7 +199,7 @@ class UserSerializer(serializers.ModelSerializer):
                     for name in Project.objects.filter(organization=obj.company).values_list("name", flat=True).distinct():
                         if name:
                             names.add(name)
-                elif not obj.is_superuser:
+                else:
                     # Default / Primary Tenant projects
                     for name in Project.objects.filter(organization__isnull=True).values_list("name", flat=True).distinct():
                         if name:
@@ -181,6 +210,13 @@ class UserSerializer(serializers.ModelSerializer):
         return sorted(list(names))
 
     def get_assigned_project_ids(self, obj):
+        if obj.is_superuser:
+            try:
+                from projects.models import Project
+                return list(Project.objects.values_list("id", flat=True).distinct())
+            except Exception:
+                return []
+
         ids = set(obj.assigned_projects.values_list("id", flat=True))
         try:
             from tasks.models import Task
@@ -200,7 +236,7 @@ class UserSerializer(serializers.ModelSerializer):
                     for pid in Project.objects.filter(organization=obj.company).values_list("id", flat=True).distinct():
                         if pid:
                             ids.add(pid)
-                elif not obj.is_superuser:
+                else:
                     for pid in Project.objects.filter(organization__isnull=True).values_list("id", flat=True).distinct():
                         if pid:
                             ids.add(pid)

@@ -1,5 +1,6 @@
 from rest_framework import viewsets
 
+from accounts.module_guard import HasModuleAccess
 from accounts.permissions import IsAdminOrCEO
 from adminpanel.scoping import is_unrestricted, user_organization_ids
 
@@ -11,9 +12,9 @@ class CategoryViewSet(viewsets.ModelViewSet):
     """CRUD for "Categories". Same underlying rows as /api/towers/, exposed
     under /api/categories/ with category-shaped field names for the
     Category Management page."""
-
+    module_key = "category-management"
     queryset = Category.objects.select_related("project").prefetch_related("floors__units").all()
-    permission_classes = [IsAdminOrCEO]
+    permission_classes = [IsAdminOrCEO, HasModuleAccess]
     filterset_fields = ["project"]
     search_fields = ["name"]
 
@@ -33,10 +34,10 @@ class CategoryViewSet(viewsets.ModelViewSet):
 class SubCategoryViewSet(viewsets.ModelViewSet):
     """CRUD for "Sub Categories". Same underlying rows as /api/floors/,
     exposed under /api/subcategories/."""
-
+    module_key = "category-management"
     queryset = SubCategory.objects.select_related("tower", "project").prefetch_related("units").all()
     serializer_class = SubCategorySerializer
-    permission_classes = [IsAdminOrCEO]
+    permission_classes = [IsAdminOrCEO, HasModuleAccess]
     filterset_fields = ["tower", "project"]
     search_fields = ["name"]
 

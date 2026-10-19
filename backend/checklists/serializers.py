@@ -125,8 +125,12 @@ class ChecklistSerializer(serializers.ModelSerializer):
 
 
 class SubTaskSerializer(serializers.ModelSerializer):
-    checklist_id = serializers.PrimaryKeyRelatedField(source="checklist", queryset=Checklist.objects.all())
-    task_id = serializers.PrimaryKeyRelatedField(source="task", read_only=True)
+    checklist_id = serializers.PrimaryKeyRelatedField(
+        source="checklist", queryset=Checklist.objects.all(), required=False, allow_null=True
+    )
+    task_id = serializers.PrimaryKeyRelatedField(
+        source="task", queryset=Task.objects.all(), required=False, allow_null=True
+    )
     unit_id = serializers.PrimaryKeyRelatedField(source="unit", read_only=True)
     floor_id = serializers.PrimaryKeyRelatedField(source="floor", read_only=True)
     tower_id = serializers.PrimaryKeyRelatedField(source="tower", read_only=True)
@@ -134,13 +138,36 @@ class SubTaskSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = SubTask
-        fields = ["id", "name", "checklist_id", "task_id", "unit_id", "floor_id", "tower_id", "project_id", "status", "progress"]
+        fields = [
+            "id", "name", "checklist_id", "task_id", "unit_id", "floor_id",
+            "tower_id", "project_id", "status", "progress", "start_date", "end_date",
+            "created_at", "updated_at",
+        ]
 
     def create(self, validated_data):
-        checklist = validated_data["checklist"]
-        validated_data["task"] = checklist.task
-        validated_data["unit"] = checklist.unit
-        validated_data["floor"] = checklist.floor
-        validated_data["tower"] = checklist.tower
-        validated_data["project"] = checklist.project
+        checklist = validated_data.get("checklist")
+        task = validated_data.get("task")
+        if checklist:
+            validated_data["task"] = checklist.task
+            validated_data["unit"] = checklist.unit
+            validated_data["floor"] = checklist.floor
+            validated_data["tower"] = checklist.tower
+            validated_data["project"] = checklist.project
+        elif task:
+            chk, _ = Checklist.objects.get_or_create(
+                task=task,
+                project=task.project,
+                name=f"{task.title} Subtasks",
+                defaults={
+                    "status": "pending",
+                    "tower": task.tower,
+                    "floor": task.floor,
+                    "unit": task.unit,
+                },
+            )
+            validated_data["checklist"] = chk
+            validated_data["unit"] = task.unit
+            validated_data["floor"] = task.floor
+            validated_data["tower"] = task.tower
+            validated_data["project"] = task.project
         return super().create(validated_data)

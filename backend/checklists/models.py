@@ -95,6 +95,8 @@ class SubTask(models.Model):
     name = models.CharField(max_length=255)
     status = models.CharField(max_length=32, default="Pending", blank=True)
     progress = models.PositiveSmallIntegerField(default=0)
+    start_date = models.DateField(null=True, blank=True)
+    end_date = models.DateField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
