@@ -1,9 +1,10 @@
+from django.db.models import Q
 from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 
-from accounts.permissions import IsAdminOrCEO
+from accounts.permissions import IsAdminOrCEO, is_admin_or_superadmin
 from adminpanel.scoping import is_unrestricted, user_organization_ids
 
 from .models import Task, TaskChecklistItem
@@ -20,41 +21,74 @@ class TaskViewSet(viewsets.ModelViewSet):
     queryset = Task.objects.select_related(
         "project__organization", "project__company", "project__entity", "tower", "assigned_to", "depends_on"
     ).all()
-    permission_classes = [permissions.IsAuthenticated]  # adjust if you want IsAdminOrCEO instead
-    # "project__organization" lets the frontend filter tasks the same way
-    # projects can be filtered by organization (?project__organization=<id>).
+    permission_classes = [permissions.IsAuthenticated]
     filterset_fields = ["project", "project__organization", "tower", "status", "priority", "department"]
     search_fields = ["title", "description"]
-    # No pagination — GET /api/tasks/ returns a plain JSON array of every
-    # matching task instead of {count, next, previous, results} split
-    # across dozens of pages. Fine for hundreds of tasks; if this table
-    # grows into the tens of thousands, pagination (or better, server-side
-    # filtering from the UI) should come back.
     pagination_class = None
 
     def get_serializer_class(self):
         return TaskListSerializer if self.action == "list" else TaskSerializer
 
     def get_queryset(self):
-        # Same organization-scoping rules as ProjectViewSet/TowerViewSet/
-        # FloorViewSet/UnitViewSet in projects/views.py, instead of the old
-        # `user.company` check (which used a different, legacy tenancy
-        # model and didn't line up with how Projects are actually scoped).
-        # Task has no organization FK of its own, so — exactly like Tower/
-        # Floor/Unit — access is resolved through its project.
         user = self.request.user
-        if is_unrestricted(user):
-            return self.queryset
-        org_ids = user_organization_ids(user)
-        if not org_ids:
+        if not user or not user.is_authenticated:
             return self.queryset.none()
-        return self.queryset.filter(project__organization_id__in=org_ids)
+
+        if is_unrestricted(user):
+            qs = self.queryset
+        else:
+            org_ids = user_organization_ids(user)
+            if not org_ids:
+                return self.queryset.none()
+            qs = self.queryset.filter(project__organization_id__in=org_ids)
+
+        # Optional assignee filter (used by admins to filter tasks by assignee)
+        assigned_to_param = self.request.query_params.get("assigned_to") or self.request.query_params.get("assignedTo")
+        if assigned_to_param:
+            if assigned_to_param == "unassigned":
+                qs = qs.filter(assigned_to__isnull=True, assigned_users__isnull=True)
+            else:
+                qs = qs.filter(
+                    Q(assigned_to_id=assigned_to_param) |
+                    Q(assigned_users__id=assigned_to_param) |
+                    Q(assigned_hod_id=assigned_to_param)
+                ).distinct()
+
+        # Non-admin users ONLY see tasks assigned to them (or tasks where they are primary, assigned user, or HOD)
+        if not is_admin_or_superadmin(user):
+            qs = qs.filter(
+                Q(assigned_to=user) |
+                Q(assigned_users=user) |
+                Q(assigned_hod=user) |
+                Q(parent__assigned_to=user) |
+                Q(parent__assigned_users=user)
+            ).distinct()
+
+        return qs
+
+    def check_object_permissions(self, request, obj):
+        super().check_object_permissions(request, obj)
+        user = request.user
+        if is_admin_or_superadmin(user):
+            return
+
+        if request.method == "DELETE":
+            self.permission_denied(request, message="Only administrators can delete tasks.")
+
+        is_assigned = (
+            obj.assigned_to_id == user.id
+            or obj.assigned_users.filter(id=user.id).exists()
+            or obj.assigned_hod_id == user.id
+            or (obj.parent and (
+                obj.parent.assigned_to_id == user.id
+                or obj.parent.assigned_users.filter(id=user.id).exists()
+                or obj.parent.assigned_hod_id == user.id
+            ))
+        )
+        if not is_assigned:
+            self.permission_denied(request, message="You do not have permission to access or edit this task.")
 
     def perform_create(self, serializer):
-        # Mirrors ProjectViewSet.perform_create: a user shouldn't be able to
-        # create a task under a project belonging to an organization they
-        # don't have access to, even though the "project" field itself
-        # accepts any project id (its queryset isn't request-scoped).
         user = self.request.user
         project = serializer.validated_data.get("project")
 
@@ -65,7 +99,22 @@ class TaskViewSet(viewsets.ModelViewSet):
                     {"project_id": "You don't have access to create a task under this project."}
                 )
 
+        if not is_admin_or_superadmin(user):
+            parent = serializer.validated_data.get("parent")
+            is_parent_assigned = parent and (
+                parent.assigned_to_id == user.id
+                or parent.assigned_users.filter(id=user.id).exists()
+                or parent.assigned_hod_id == user.id
+            )
+            if not is_parent_assigned:
+                raise ValidationError({"detail": "Only administrators can create top-level tasks."})
+
         serializer.save()
+
+    def perform_destroy(self, instance):
+        if not is_admin_or_superadmin(self.request.user):
+            raise ValidationError({"detail": "Only administrators can delete tasks."})
+        instance.delete()
 
     @action(detail=True, methods=['get', 'post'], url_path='comments')
     def comments(self, request, pk=None):

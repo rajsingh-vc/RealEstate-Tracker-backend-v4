@@ -137,12 +137,14 @@ class UserModuleConfigView(views.APIView):
             return True
         if not is_admin_or_superadmin(request_user):
             return False
-        # Site Admin: can only manage users within their own company/tenant
-        return (
-            request_user.company_id is not None
-            and target_user.company_id == request_user.company_id
-            and not target_user.is_superuser
-        )
+        if target_user.is_superuser:
+            return False
+        # Site Admin: can manage users within their own company/tenant or users they invited
+        if request_user.company_id is not None and target_user.company_id == request_user.company_id:
+            return True
+        if Invitation.objects.filter(accepted_by=target_user, invited_by=request_user).exists():
+            return True
+        return False
 
     def get(self, request, user_id: int):
         try:
@@ -287,7 +289,11 @@ class ResetUserModuleConfigView(views.APIView):
             return Response({"detail": "User not found."}, status=status.HTTP_404_NOT_FOUND)
 
         if not request.user.is_superuser:
-            if not is_admin_or_superadmin(request.user) or request.user.company_id != target_user.company_id:
+            can_manage = is_admin_or_superadmin(request.user) and (
+                (request.user.company_id and request.user.company_id == target_user.company_id)
+                or Invitation.objects.filter(accepted_by=target_user, invited_by=request.user).exists()
+            )
+            if not can_manage:
                 return Response({"detail": "Unauthorized to reset permissions for this user."}, status=status.HTTP_403_FORBIDDEN)
 
         project_id_raw = request.data.get("project_id")
@@ -520,7 +526,7 @@ class ModuleMatrixView(views.APIView):
         # Dynamic Users query:
         # Per requirement: "this should be dynamic not static right now only superadmin is there so...
         # keep that only if i invite someone and that person accepts that invite that person according
-        # to it it should be configurable like what should be hidden and what not should be hidden"
+        # Dynamic Users query:
         include_all = request.query_params.get("include_all", "").lower() in ("true", "1", "yes")
 
         base_users = User.objects.select_related("role", "company").filter(is_active=True)
@@ -528,19 +534,36 @@ class ModuleMatrixView(views.APIView):
             base_users = base_users.filter(company_id=request.user.company_id)
 
         accepted_invites = Invitation.objects.filter(status=Invitation.Status.ACCEPTED)
-        if not request.user.is_superuser and request.user.company_id:
-            accepted_invites = accepted_invites.filter(company_id=request.user.company_id)
+        if not request.user.is_superuser:
+            if request.user.company_id:
+                accepted_invites = accepted_invites.filter(
+                    models.Q(company_id=request.user.company_id) | models.Q(invited_by=request.user)
+                )
+            else:
+                accepted_invites = accepted_invites.filter(invited_by=request.user)
 
-        accepted_emails = set(accepted_invites.values_list("email", flat=True))
+        accepted_emails_lower = {e.strip().lower() for e in accepted_invites.values_list("email", flat=True) if e}
         accepted_user_ids = set(accepted_invites.filter(accepted_by__isnull=False).values_list("accepted_by_id", flat=True))
+
+        email_q = models.Q()
+        for em in accepted_emails_lower:
+            email_q |= models.Q(email__iexact=em)
 
         if include_all:
             matrix_users_qs = base_users.filter(is_superuser=False).order_by("name", "username")
         else:
-            # Only non-superuser accounts who were invited and accepted their invite
+            # Non-superuser accounts who were invited and accepted their invite
             matrix_users_qs = base_users.filter(
-                models.Q(is_superuser=False) & (models.Q(id__in=accepted_user_ids) | models.Q(email__in=accepted_emails))
+                models.Q(is_superuser=False) & (
+                    models.Q(id__in=accepted_user_ids) |
+                    email_q |
+                    models.Q(accepted_invitation__status=Invitation.Status.ACCEPTED)
+                )
             ).distinct().order_by("name", "username")
+
+            # Fallback: if no users specifically match accepted invite filter, show active non-superusers in company
+            if not matrix_users_qs.exists() and base_users.filter(is_superuser=False).exists():
+                matrix_users_qs = base_users.filter(is_superuser=False).order_by("name", "username")
 
         matrix_users = list(matrix_users_qs)
 
@@ -596,6 +619,12 @@ class ModuleMatrixView(views.APIView):
 
         user_list = []
         for u in matrix_users:
+            u_email_lower = (u.email or "").strip().lower()
+            is_invited_user = bool(
+                u.id in accepted_user_ids
+                or (u_email_lower and u_email_lower in accepted_emails_lower)
+                or getattr(u, "accepted_invitation", None) is not None
+            )
             user_list.append({
                 "id": u.id,
                 "name": u.name or u.username,
@@ -603,8 +632,8 @@ class ModuleMatrixView(views.APIView):
                 "email": u.email,
                 "role_name": u.role.name if u.role else ("Super Admin" if u.is_superuser else "User"),
                 "is_superuser": u.is_superuser,
-                "is_invited": (u.id in accepted_user_ids or u.email in accepted_emails),
-                "company_name": u.company.company_name if u.company else None,
+                "is_invited": is_invited_user,
+                "company_name": (getattr(u.company, "name", None) or getattr(u.company, "company_name", None)) if u.company else None,
             })
 
         return Response({

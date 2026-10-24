@@ -125,6 +125,8 @@ class UserSerializer(serializers.ModelSerializer):
     assigned_projects = serializers.SerializerMethodField()
     assigned_project_ids = serializers.SerializerMethodField()
     invitation_status = serializers.SerializerMethodField()
+    is_invited = serializers.SerializerMethodField()
+    can_edit = serializers.SerializerMethodField()
     last_login = serializers.SerializerMethodField()
     module_permissions = serializers.SerializerMethodField()
     module_access_map = serializers.SerializerMethodField()
@@ -135,12 +137,13 @@ class UserSerializer(serializers.ModelSerializer):
             'id', 'username', 'email', 'name', 'phone_number', 'role',
             'department', 'company', 'company_name', 'is_active',
             'is_superuser', 'last_login', 'activity_status', 'can_manage_users',
+            'is_invited', 'can_edit',
             'assigned_projects', 'assigned_project_ids', 'invitation_status',
             'module_permissions', 'module_access_map',
         ]
         read_only_fields = [
             'last_login', 'is_superuser', 'company_name', 'activity_status',
-            'can_manage_users', 'assigned_projects', 'assigned_project_ids',
+            'can_manage_users', 'is_invited', 'can_edit', 'assigned_projects', 'assigned_project_ids',
             'invitation_status', 'module_permissions', 'module_access_map',
         ]
 
@@ -253,6 +256,27 @@ class UserSerializer(serializers.ModelSerializer):
         if inv_email:
             return inv_email.get_status_display()
         return "Active"
+
+    def get_is_invited(self, obj):
+        if obj.is_superuser:
+            return False
+        if getattr(obj, 'accepted_invitation', None):
+            return True
+        try:
+            if Invitation.objects.filter(accepted_by=obj).exists():
+                return True
+            if obj.email and Invitation.objects.filter(email__iexact=obj.email, status=Invitation.Status.ACCEPTED).exists():
+                return True
+        except Exception:
+            pass
+        return not obj.has_perm_codename('can_manage_users')
+
+    def get_can_edit(self, obj):
+        if obj.is_superuser:
+            return True
+        if self.get_is_invited(obj):
+            return False
+        return obj.has_perm_codename('can_manage_users')
 
     def get_last_login(self, obj):
         val = obj.last_login

@@ -185,7 +185,7 @@ class User(AbstractUser):
         """Dynamic permission check off the user's Role. SuperAdmin always passes."""
         if self.is_superuser:
             return True
-        if self.role_id:
+        if self.role:
             return self.role.permissions.filter(codename=codename).exists()
         return False
 

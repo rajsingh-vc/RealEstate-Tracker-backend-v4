@@ -75,6 +75,36 @@ def _resource_label(path):
     return _singularize(segments[-1].lower())
 
 
+def _target_url_for(path):
+    """Derive sensible frontend route from API path."""
+    clean = path.strip("/").lower()
+    if "tasks" in clean:
+        match = re.search(r'/tasks/(\d+)', path)
+        if match:
+            return f"/tasks?taskId={match.group(1)}"
+        return "/tasks"
+    if "projects" in clean:
+        match = re.search(r'/projects/(\d+)', path)
+        if match:
+            return f"/projects/{match.group(1)}"
+        return "/projects"
+    if "hurdles" in clean:
+        return "/hurdles"
+    if "checklists" in clean:
+        return "/checklists"
+    if "compliance" in clean:
+        return "/compliance"
+    if "resources" in clean:
+        return "/resources"
+    if "documents" in clean:
+        return "/documents"
+    if "reports" in clean:
+        return "/reports"
+    if "users" in clean or "invitations" in clean:
+        return "/admin"
+    return ""
+
+
 class ActivityNotificationMiddleware:
     def __init__(self, get_response):
         self.get_response = get_response
@@ -110,10 +140,11 @@ class ActivityNotificationMiddleware:
         resource = _resource_label(path)
         article = _article_for(resource)
         actor_name = user.name or user.username
+        target_url = _target_url_for(path)
 
         notify_superadmins(
             verb=f"{verb} {article} {resource}",
             actor=user,
             description=f"{actor_name} {verb} {article} {resource}.",
-            target_url="",
+            target_url=target_url,
         )

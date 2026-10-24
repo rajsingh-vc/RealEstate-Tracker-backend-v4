@@ -2,7 +2,7 @@ from django.db.models import Q
 from rest_framework import permissions, viewsets
 
 from accounts.module_guard import HasModuleAccess
-from accounts.permissions import IsAdminOrSuperAdminOrReadOnly
+from accounts.permissions import IsAdminOrSuperAdminOrReadOnly, is_admin_or_superadmin
 from adminpanel.scoping import is_unrestricted, user_organization_ids
 
 from .models import Checklist, ChecklistTemplate, SubTask
@@ -40,12 +40,25 @@ class ChecklistViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
-        if is_unrestricted(user):
-            return self.queryset
-        org_ids = user_organization_ids(user)
-        if not org_ids:
+        if not user or not user.is_authenticated:
             return self.queryset.none()
-        return self.queryset.filter(project__organization_id__in=org_ids)
+        if is_unrestricted(user):
+            qs = self.queryset
+        else:
+            org_ids = user_organization_ids(user)
+            if not org_ids:
+                return self.queryset.none()
+            qs = self.queryset.filter(project__organization_id__in=org_ids)
+
+        if not is_admin_or_superadmin(user):
+            qs = qs.filter(
+                Q(task__assigned_to=user) |
+                Q(task__assigned_users=user) |
+                Q(task__assigned_hod=user) |
+                Q(task__parent__assigned_to=user) |
+                Q(task__parent__assigned_users=user)
+            ).distinct()
+        return qs
 
 
 class SubTaskViewSet(viewsets.ModelViewSet):
@@ -57,9 +70,22 @@ class SubTaskViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
-        if is_unrestricted(user):
-            return self.queryset
-        org_ids = user_organization_ids(user)
-        if not org_ids:
+        if not user or not user.is_authenticated:
             return self.queryset.none()
-        return self.queryset.filter(project__organization_id__in=org_ids)
+        if is_unrestricted(user):
+            qs = self.queryset
+        else:
+            org_ids = user_organization_ids(user)
+            if not org_ids:
+                return self.queryset.none()
+            qs = self.queryset.filter(project__organization_id__in=org_ids)
+
+        if not is_admin_or_superadmin(user):
+            qs = qs.filter(
+                Q(task__assigned_to=user) |
+                Q(task__assigned_users=user) |
+                Q(task__assigned_hod=user) |
+                Q(task__parent__assigned_to=user) |
+                Q(task__parent__assigned_users=user)
+            ).distinct()
+        return qs

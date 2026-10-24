@@ -532,8 +532,8 @@ class AcceptInvitationView(APIView):
         verb = "accepted their invitation"
         description = f"{display_name} accepted the invitation to join {invitation.company.name} and is now a member."
         if invitation.invited_by_id and not invitation.invited_by.is_superuser:
-            notify(invitation.invited_by, verb, actor=user, description=description)
-        notify_superadmins(verb, actor=user, description=description)
+            notify(invitation.invited_by, verb, actor=user, description=description, target_url="/admin")
+        notify_superadmins(verb, actor=user, description=description, target_url="/admin")
 
         return Response(
             {**_tokens_for(user), "user": UserSerializer(user, context={'request': request}).data},
